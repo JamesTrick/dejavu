@@ -1,0 +1,45 @@
+[project]
+name = "dejavu"
+version = "0.0.1"
+description = "Extensible and flexible backtesting library for python supporting Equity, Option and Forex trading strategies."
+requires-python = ">=3.14"
+dependencies = [
+    "pandas>=3.0.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.4",
+]
+
+[tool.ruff]
+# Target version for syntax highlighting/checks
+target-version = "py39"
+line-length = 88 # The Black standard
+
+[tool.ruff.lint]
+# Selected rule sets
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import sorting)
+    "B",   # flake8-bugbear (common bugs)
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade (modernize syntax)
+    "ARG", # flake8-unused-arguments
+    "PT",  # flake8-pytest-style
+]
+ignore = [
+    "E501", # Ignore line length violations (Ruff formatter handles this)
+    "B008", # Allow function calls in default arguments (useful for FastAPI/Typer)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dejavu"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
