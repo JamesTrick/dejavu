@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
-from typing import Optional
 
 
 class EventType(Enum):
@@ -15,6 +14,7 @@ class AssetClass(Enum):
     OPTION = auto()
     FUTURE = auto()
     FX = auto()
+    CRYPTO = auto()
 
 @dataclass
 class Event:
@@ -39,11 +39,11 @@ class OptionMarketEvent(MarketEvent):
     strike: float = 0.0
     expiry: datetime = field(default_factory=datetime.now)
     option_type: str = "C"   # "C" or "P"
-    iv: Optional[float] = None
-    delta: Optional[float] = None
-    gamma: Optional[float] = None
-    theta: Optional[float] = None
-    vega: Optional[float] = None
+    iv: float | None = None
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
 
 @dataclass
 class Position:
@@ -51,19 +51,18 @@ class Position:
     quantity: float        # negative = short
     avg_cost: float
     asset_class: AssetClass
+
+    multiplier: float = 1.0
+
     # Options-specific
-    underlying: Optional[str] = None
-    strike: Optional[float] = None
-    expiry: Optional[datetime] = None
-    option_type: Optional[str] = None
+    underlying: str | None = None
+    strike: float | None = None
+    expiry: datetime | None = None
+    option_type: str | None = None
 
     def market_value(self, current_price: float) -> float:
         return self.quantity * current_price * self.multiplier
 
-    @property
-    def multiplier(self) -> int:
-        """Options typically represent 100 shares."""
-        return 100 if self.asset_class == AssetClass.OPTION else 1
 
 class OrderType(Enum):
     MARKET = auto()
@@ -75,8 +74,8 @@ class Order:
     symbol: str
     quantity: float        # positive = buy, negative = sell
     order_type: OrderType
-    limit_price: Optional[float] = None
-    stop_price: Optional[float] = None
+    limit_price: float | None = None
+    stop_price: float | None = None
     asset_class: AssetClass = AssetClass.EQUITY
 
 @dataclass
@@ -88,3 +87,15 @@ class FillEvent:
     fill_price: float
     commission: float
     multiplier: int
+
+@dataclass
+class MultiLegOrder:
+    """Order class for when there are multiple legs, e.g. for options strategies like strangles, spreads, condors, etc.
+
+    This is helpful for tracking and filling strategies without creating time-gaps between legs.
+
+    If fill_as_unit=True, all legs must be filled together.
+    """
+    legs: list[Order]
+    strategy_type: str   # "strangle", "spread", "condor", etc.
+    fill_as_unit:  bool = True

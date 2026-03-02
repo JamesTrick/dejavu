@@ -1,4 +1,3 @@
-from typing import Optional
 
 from dejavu.portfolio import Portfolio
 from dejavu.schemas import AssetClass, MarketEvent, OptionMarketEvent, Order, OrderType
@@ -22,9 +21,9 @@ class CoveredCallStrategy(Strategy):
         super().__init__(portfolio)
         self.underlying    = underlying
         self.bought_stock  = False
-        self.short_call:   Optional[str] = None
+        self.short_call:   str | None = None
         # Track pending orders so we don't double-queue before fills land
-        self._pending_call: Optional[str] = None
+        self._pending_call: str | None = None
 
     def _has_open_short_call(self) -> bool:
         # Check both filled positions AND pending-but-unfilled orders

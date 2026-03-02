@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -11,7 +10,7 @@ from ..schemas import AssetClass, EventType, MarketEvent, OptionMarketEvent
 
 @dataclass
 class BarData:
-    """Normalized bar — every feed outputs this."""
+    """Normalized bar — optional intermediate; feeds may yield MarketEvent / OptionMarketEvent directly."""
     timestamp: datetime
     symbol: str
     open: float
@@ -21,35 +20,52 @@ class BarData:
     volume: float
     asset_class: AssetClass
     # Options fields (None for non-options)
-    underlying: Optional[str] = None
-    strike: Optional[float] = None
-    expiry: Optional[datetime] = None
-    option_type: Optional[str] = None  # "C" or "P"
-    iv: Optional[float] = None
-    delta: Optional[float] = None
-    gamma: Optional[float] = None
-    theta: Optional[float] = None
-    vega: Optional[float] = None
+    underlying: str | None = None
+    strike: float | None = None
+    expiry: datetime | None = None
+    option_type: str | None = None  # "C" or "P"
+    iv: float | None = None
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
 
 
 class DataFeed(ABC):
+    """Event-based feed: stream() yields market events in time order. No symbols/start/end — feed owns its source."""
+
+    def supports_asset_class(self, asset_class: AssetClass) -> bool:
+        """Override if the feed only supports certain asset classes. Default: all supported."""
+        return True
+
+class RESTDataFeed(DataFeed, ABC):
+
     @abstractmethod
-    def stream(
-        self,
-        symbols: list[str],
-        start: datetime,
-        end: datetime,
-    ) -> Iterator[BarData]:
+    def stream(self) -> Iterator[MarketEvent]:
         ...
 
 
+class LiveDataFeed(DataFeed, ABC):
+
+    @abstractmethod
+    async def stream(self) -> Iterator[MarketEvent]:
+        ...
+
+    async def connect(self) -> None:
+        pass
+
+    async def disconnect(self) -> None:
+        pass
+
+
 class CSVDataFeed(DataFeed):
+    """CSV-based feed for one or more symbols. Supports EQUITY and CRYPTO"""
 
     def __init__(self, paths: dict[str, str], asset_classes: dict[str, AssetClass]):
         self.paths = paths  # symbol -> file path
         self.asset_classes = asset_classes
 
-    def stream(self):
+    def stream(self) -> Iterator[MarketEvent]:
         frames = []
         for symbol, path in self.paths.items():
             df = pd.read_csv(path, parse_dates=["timestamp"])
@@ -72,9 +88,10 @@ class CSVDataFeed(DataFeed):
             )
 
 
-class CombinedDataFeed:
+class CombinedDataFeed(DataFeed):
     """Combines equity and options data from separate CSVs, yielding MarketEvent or OptionMarketEvent in timestamp order."""
-    def __init__(self, equity_path: str, options_path: Optional[str] = None):
+
+    def __init__(self, equity_path: str, options_path: str | None = None):
         eq = pd.read_csv(equity_path, parse_dates=["timestamp"])
         eq["asset_class_order"] = 0   # equity streams FIRST each day
         frames = [eq]
@@ -92,7 +109,7 @@ class CombinedDataFeed:
             .reset_index(drop=True)
         )
 
-    def stream(self):
+    def stream(self) -> Iterator[MarketEvent]:
         for _, row in self.data.iterrows():
             is_option = row.get("asset_class_order", 0) == 1
 

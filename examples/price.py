@@ -7,75 +7,43 @@ from data.generate_data import generate_equity_csv, generate_options_csv
 from dejavu.data.feed import CSVDataFeed
 from dejavu.engine import BacktestEngine
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
-from dejavu.indicators.ma import SMA
 from dejavu.portfolio import Portfolio
-from dejavu.schemas import AssetClass, MarketEvent, Order, OrderType
+from dejavu.schemas import AssetClass, MarketEvent, OrderType
 from dejavu.strategy.base import Strategy
-from dejavu.strategy.sizers.risk import PercentRisk
 
 
-class MACrossOver(Strategy):
+class SimpleStrategy(Strategy):
 
-    def __init__(self, portfolio, underlying: str):
+    def __init__(self, portfolio: Portfolio, underlying: str):
         super().__init__(portfolio)
+        self.portfolio = portfolio
         self.underlying = underlying
-
-        # Declare indicators — no maths in the strategy itself
-        self.fast_ma = SMA(period=20)
-        self.slow_ma = SMA(period=50)
-        self.sizer = PercentRisk(risk_pct=0.01)
+        self.previous_price = None
 
     def on_market(self, event: MarketEvent):
         orders = []
-
-        if event.asset_class == AssetClass.EQUITY:
-            self.fast_ma.update(event.close)
-            self.slow_ma.update(event.close)
-
-        if not self.fast_ma.ready or not self.slow_ma.ready:
+        if self.previous_price is None:
+            self.previous_price = event.close
             return orders
 
         in_position = self.underlying in self.portfolio.positions
 
-        if self.fast_ma > self.slow_ma and not in_position:
-            # Golden cross — go long
-            qty = self.sizer.size(
-                symbol=self.underlying,
-                price=event.close,
-                portfolio=self.portfolio,
-                stop_distance=event.close * 0.98
-            )
-            orders.append((
-                Order(
-                    symbol=self.underlying,
-                    quantity=qty,
-                    order_type=OrderType.MARKET,
-                    asset_class=AssetClass.EQUITY,
-                ),
-                {"asset_class": AssetClass.EQUITY},
-            ))
-            print(
-                f"  [BUY] {event.timestamp.date()} | "
-                f"fast={self.fast_ma.value:.2f} slow={self.slow_ma.value:.2f}"
-            )
-
-        elif self.fast_ma.value < self.slow_ma.value and in_position:
-            # Death cross — exit
-            qty = -self.portfolio.positions[self.underlying].quantity
-            orders.append((
-                Order(
-                    symbol=self.underlying,
-                    quantity=qty,
-                    order_type=OrderType.MARKET,
-                    asset_class=AssetClass.EQUITY,
-                ),
-                {"asset_class": AssetClass.EQUITY},
-            ))
-            print(
-                f"  [SELL] {event.timestamp.date()} | "
-                f"fast={self.fast_ma.value:.2f} slow={self.slow_ma.value:.2f}"
-            )
-
+        if event.close > self.previous_price and not in_position:
+            orders.append((self.buy(
+                self.underlying,
+                qty=10,
+                order_type=OrderType.MARKET,
+                asset_class=AssetClass.EQUITY,
+            ), {"asset_class": AssetClass.EQUITY})
+                )
+        elif event.close < self.previous_price and in_position:
+            orders.append((self.sell(
+                self.underlying,
+                qty=10,
+                order_type=OrderType.MARKET,
+                asset_class=AssetClass.EQUITY,
+            ), {"asset_class": AssetClass.EQUITY}))
+        self.previous_price = event.close
         return orders
 
 
@@ -103,7 +71,7 @@ def run_test():
 
     # ── Wire up components ────────────────────────────────────────
     portfolio = Portfolio(initial_capital=25_000)
-    strategy  = MACrossOver(portfolio, underlying="AAPL")
+    strategy  = SimpleStrategy(portfolio, underlying="AAPL")
     feed      = CSVDataFeed({"AAPL": "equity.csv"}, asset_classes={"AAPL": AssetClass.EQUITY})
     slippage  = VolumeWeightedSlippage(impact_factor=0.1)
     executor  = SimulatedExecutionHandler(commission_per_contract=0.65, slippage=slippage)
@@ -114,8 +82,8 @@ def run_test():
     engine.run()
 
     # ── Results ───────────────────────────────────────────────────
-    history = portfolio.trade_journal
-    returns = portfolio.equity.pct_change().dropna()
+    history = pd.DataFrame(portfolio.history).drop_duplicates("timestamp").set_index("timestamp")
+    returns = history["equity"].pct_change().dropna()
 
     sharpe = (
         np.sqrt(252) * returns.mean() / returns.std()

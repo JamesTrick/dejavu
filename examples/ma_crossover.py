@@ -119,7 +119,7 @@ def run_test():
     cagr         = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
-    trades_df = pd.DataFrame(portfolio.trades)
+    trades_df = pd.DataFrame(portfolio.trade_journal)
     print(trades_df.to_string(index=False))
 
     print("\n--- Performance Summary ---")
@@ -128,7 +128,7 @@ def run_test():
     print(f"  CAGR            : {cagr:>10.2%}")
     print(f"  Sharpe Ratio    : {sharpe:>10.2f}")
     print(f"  Max Drawdown    : {max_drawdown:>10.2%}")
-    print(f"  Total Trades    : {len(portfolio.trades):>10}")
+    print(f"  Total Trades    : {len(trades_df):>10}")
     print("=" * 60)
 
 

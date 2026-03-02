@@ -45,6 +45,8 @@ def run_test():
     print("\n--- Activity Log ---")
     engine.run()
 
+    print(f"AAPL Multiplier: {portfolio.positions['AAPL'].multiplier}")
+    print(f"Portfolio Equity: ${portfolio.equity:.2f}")
     # ── Results ───────────────────────────────────────────────────
     history = pd.DataFrame(portfolio.history).drop_duplicates("timestamp").set_index("timestamp")
     returns = history["equity"].pct_change().dropna()
@@ -60,8 +62,10 @@ def run_test():
     cagr         = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
-    trades_df = pd.DataFrame(portfolio.trades)
+    trades_df = pd.DataFrame(portfolio.trade_journal)
     print(trades_df.to_string(index=False))
+
+    print(trades_df)
 
     print("\n--- Performance Summary ---")
     print(f"  Initial Capital : ${portfolio.initial_capital:>10,.2f}")
@@ -69,7 +73,7 @@ def run_test():
     print(f"  CAGR            : {cagr:>10.2%}")
     print(f"  Sharpe Ratio    : {sharpe:>10.2f}")
     print(f"  Max Drawdown    : {max_drawdown:>10.2%}")
-    print(f"  Total Trades    : {len(portfolio.trades):>10}")
+    print(f"  Total Trades    : {len(trades_df):>10}")
     print("=" * 60)
 
 

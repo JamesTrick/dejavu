@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from dejavu.schemas import (
     AssetClass,
@@ -13,7 +12,7 @@ from dejavu.schemas import (
 
 class ExecutionHandler(ABC):
     @abstractmethod
-    def execute(self, order: Order, market: MarketEvent) -> Optional[FillEvent]:
+    def execute(self, order: Order, market: MarketEvent) -> FillEvent | None:
         ...
 
 
@@ -42,7 +41,7 @@ class SimulatedExecutionHandler(ExecutionHandler):
         self.slippage = slippage
         self.commission = commission_per_contract
 
-    def execute(self, order: Order, market: MarketEvent) -> Optional[FillEvent]:
+    def execute(self, order: Order, market: MarketEvent) -> FillEvent | None:
         if order.order_type == OrderType.MARKET:
             fill_price = self.slippage.apply(
                 market.close, order.quantity, market.volume
