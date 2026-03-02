@@ -15,6 +15,15 @@ class RealisticRegTModel:
         self.config = config
 
     def calculate_used_margin(self, portfolio: Portfolio) -> float:
+        if getattr(portfolio, "_rust", None) is not None:
+            from dejavu._core import calculate_used_margin as rust_margin
+            return rust_margin(
+                portfolio._rust,
+                self.config.equity_initial,
+                self.config.equity_maintenance,
+                self.config.option_base_pct,
+                self.config.option_min_pct,
+            )
         total_margin = 0.0
         view = portfolio.underlying_view()
 

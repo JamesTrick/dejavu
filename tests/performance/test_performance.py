@@ -247,3 +247,45 @@ def test_perf_portfolio_1k_fills(capsys):
     with capsys.disabled():
         print(f"\n  [perf] portfolio apply_fill x2000 (1k round-trips): {elapsed:.3f}s total, {per_us:.2f} µs/fill")
     assert elapsed >= 0
+
+from dejavu._core import RustPortfolio
+
+
+def test_perf_new_portfolio_1k_fills(capsys):
+    """Time 1k apply_fill() calls using the Rust backend."""
+    # 1. Setup
+    initial_capital = 1_000_000.0
+    portfolio = RustPortfolio(initial_capital)
+    ts = datetime(2024, 1, 1)
+    ts_int = int(ts.timestamp())  # Pre-calculate to measure pure logic speed
+
+    # 2. Timing Loop
+    # We measure the cost of calling the Rust FFI
+    t0 = time.perf_counter()
+
+    for i in range(1000):
+        # We simulate the price moving slightly
+        buy_price = 100.0 + (i * 0.01)
+        sell_price = buy_price + 0.1
+
+        # Call Rust directly
+        # Arguments: symbol, qty, price, comm, multiplier, timestamp, position_meta
+        portfolio.apply_fill("SYM", 100.0, buy_price, 1.0, 1.0, ts_int, None)
+        portfolio.apply_fill("SYM", -100.0, sell_price, 1.0, 1.0, ts_int, None)
+
+    elapsed = time.perf_counter() - t0
+
+    # 3. Reporting
+    total_fills = 2000
+    per_us = (elapsed / total_fills) * 1_000_000
+
+    with capsys.disabled():
+        print(f"\n  [perf] RUST portfolio apply_fill x2000: {elapsed:.4f}s total, {per_us:.3f} µs/fill")
+
+    # 4. Correctness Assertions
+    # Verify the math actually happened in Rust
+    # Each round trip: Profit = (0.1 * 100) - 2.0 (comm) = 8.0
+    # 1000 round trips = 8000.0 profit
+    expected_cash = initial_capital + 8000.0
+    assert abs(portfolio.cash - expected_cash) < 1e-7
+    assert elapsed > 0

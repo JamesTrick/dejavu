@@ -1,0 +1,14 @@
+/Users/james.malcolm/PycharmProjects/dejavu/target/debug/deps/pyo3_build_config-807dde0ce177a43f.d: /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/lib.rs /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/errors.rs /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/impl_.rs /Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config-file.txt /Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config.txt
+
+/Users/james.malcolm/PycharmProjects/dejavu/target/debug/deps/libpyo3_build_config-807dde0ce177a43f.rlib: /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/lib.rs /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/errors.rs /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/impl_.rs /Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config-file.txt /Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config.txt
+
+/Users/james.malcolm/PycharmProjects/dejavu/target/debug/deps/libpyo3_build_config-807dde0ce177a43f.rmeta: /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/lib.rs /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/errors.rs /Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/impl_.rs /Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config-file.txt /Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config.txt
+
+/Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/lib.rs:
+/Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/errors.rs:
+/Users/james.malcolm/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.27.2/src/impl_.rs:
+/Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config-file.txt:
+/Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out/pyo3-build-config.txt:
+
+# env-dep:CARGO_PKG_VERSION=0.27.2
+# env-dep:OUT_DIR=/Users/james.malcolm/PycharmProjects/dejavu/target/debug/build/pyo3-build-config-a61c250ddca1ae75/out
