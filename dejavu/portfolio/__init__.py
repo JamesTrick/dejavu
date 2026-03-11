@@ -1,4 +1,4 @@
-from  .base import Portfolio
+from .base import Portfolio
 
 __all__ = [
     "Portfolio",

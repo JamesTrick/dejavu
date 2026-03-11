@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import Optional
 
 
 class SequentialIndicator(ABC):
@@ -12,9 +11,9 @@ class SequentialIndicator(ABC):
     def __init__(self, period: int):
         self.period  = period
         self._buffer = deque(maxlen=period)
-        self._value: Optional[float] = None
+        self._value: float | None = None
 
-    def update(self, price: float) -> Optional[float]:
+    def update(self, price: float) -> float | None:
         self._buffer.append(price)
         if len(self._buffer) >= self.period:
             self._value = self._compute(list(self._buffer))
@@ -25,7 +24,7 @@ class SequentialIndicator(ABC):
         ...
 
     @property
-    def value(self) -> Optional[float]:
+    def value(self) -> float | None:
         return self._value
 
     @property

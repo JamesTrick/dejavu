@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from dejavu.portfolio import Portfolio
 from dejavu.portfolio.rebalancing.base import Rebalancer
@@ -14,9 +13,11 @@ class CalendarRebalancer(Rebalancer):
     def __init__(self, frequency: str = "monthly"):
         assert frequency in self.FREQUENCIES
         self.frequency      = frequency
-        self._last_rebal:   Optional[datetime] = None
+        self._last_rebal:   datetime | None = None
 
-    def should_rebalance(self, timestamp: datetime) -> bool:
+    def should_rebalance(
+        self, timestamp: datetime, portfolio: Portfolio | None = None
+    ) -> bool:
         if self._last_rebal is None:
             return True
 
@@ -72,8 +73,10 @@ class ThresholdRebalancer(Rebalancer):
     def __init__(self, threshold: float = 0.05):
         self.threshold = threshold
 
-    def should_rebalance(self, timestamp: datetime, portfolio: Portfolio) -> bool:
-        if not portfolio.positions:
+    def should_rebalance(
+        self, timestamp: datetime, portfolio: Portfolio | None = None
+    ) -> bool:
+        if portfolio is None or not portfolio.positions:
             return False
         # Check max drift — generate_orders will handle the details
         return self._max_drift(portfolio) > self.threshold

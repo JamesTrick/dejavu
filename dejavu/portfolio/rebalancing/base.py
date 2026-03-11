@@ -7,8 +7,10 @@ from dejavu.schemas import Order
 
 class Rebalancer(ABC):
     @abstractmethod
-    def should_rebalance(self, timestamp: datetime) -> bool:
-        """Called every bar — returns True when rebalance is due."""
+    def should_rebalance(
+        self, timestamp: datetime, portfolio: Portfolio | None = None
+    ) -> bool:
+        """Called every bar — returns True when rebalance is due. Portfolio is optional for schedule-based rebalancers."""
         ...
 
     @abstractmethod

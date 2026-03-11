@@ -6,9 +6,8 @@ import pandas as pd
 from data.generate_data import generate_equity_csv, generate_options_csv
 from dejavu.data.feed import CSVDataFeed
 from dejavu.engine import BacktestEngine
-from dejavu.execution.commission import AssetClassCommission, TieredPerShareCommission
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
-from dejavu.indicators.ma import SMA
+from dejavu.indicators.macd import MACD
 from dejavu.portfolio import Portfolio
 from dejavu.schemas import AssetClass, MarketEvent, Order, OrderType
 from dejavu.strategy.base import Strategy
@@ -19,54 +18,51 @@ class MACrossOver(Strategy):
     def __init__(self, portfolio, underlying: str):
         super().__init__(portfolio)
         self.underlying = underlying
-
-        # Declare indicators — no maths in the strategy itself
-        self.fast_ma = SMA(period=20)
-        self.slow_ma = SMA(period=50)
+        self.macd = MACD()
 
     def on_market(self, event: MarketEvent):
         orders = []
 
-        if event.instrument.asset_class == AssetClass.EQUITY:
-            self.fast_ma.update(event.close)
-            self.slow_ma.update(event.close)
+        if event.asset_class == AssetClass.EQUITY:
+            self.macd.update(event.close)
 
-        if not self.fast_ma.ready or not self.slow_ma.ready:
+        if not self.macd.ready:
             return orders
 
         in_position = self.underlying in self.portfolio.positions
 
-        if self.fast_ma > self.slow_ma and not in_position:
-            # Golden cross — go long
-            orders.append(
+        if self.macd._value > 0 and not in_position:
+            # MACD line above signal line — go long
+            orders.append((
                 Order(
-                    instrument=event.instrument,
+                    symbol=self.underlying,
                     quantity=50,
                     order_type=OrderType.MARKET,
+                    asset_class=AssetClass.EQUITY,
                 ),
                 {"asset_class": AssetClass.EQUITY},
-            )
+            ))
             print(
                 f"  [BUY] {event.timestamp.date()} | "
-                f"fast={self.fast_ma.value:.2f} slow={self.slow_ma.value:.2f}"
+                f"MACD={self.macd._value:.2f} Signal={self.macd.signal_line:.2f}"
             )
-
-        elif self.fast_ma.value < self.slow_ma.value and in_position:
-            # Death cross — exit
-            orders.append(
+        elif self.macd._value < 0 and in_position:
+            # MACD line below signal line — exit
+            orders.append((
                 Order(
-                    instrument=event.instrument,
+                    symbol=self.underlying,
                     quantity=-50,
                     order_type=OrderType.MARKET,
+                    asset_class=AssetClass.EQUITY,
                 ),
-            )
+                {"asset_class": AssetClass.EQUITY},
+            ))
             print(
                 f"  [SELL] {event.timestamp.date()} | "
-                f"fast={self.fast_ma.value:.2f} slow={self.slow_ma.value:.2f}"
+                f"MACD={self.macd._value:.2f} Signal={self.macd.signal_line:.2f}"
             )
 
         return orders
-
 
 def run_test():
     print("\n" + "=" * 60)
@@ -95,12 +91,7 @@ def run_test():
     strategy  = MACrossOver(portfolio, underlying="AAPL")
     feed      = CSVDataFeed({"AAPL": "equity.csv"}, asset_classes={"AAPL": AssetClass.EQUITY})
     slippage  = VolumeWeightedSlippage(impact_factor=0.1)
-    commission_model = AssetClassCommission(models={AssetClass.EQUITY: TieredPerShareCommission(
-        rate=0.005,
-        minimum=1.00,
-        max_pct_notional=0.01,
-    )})
-    executor  = SimulatedExecutionHandler(commission=commission_model, slippage=slippage)
+    executor  = SimulatedExecutionHandler(commission_per_contract=0.65, slippage=slippage)
     engine    = BacktestEngine(feed, strategy, portfolio, executor)
 
     # ── Run ───────────────────────────────────────────────────────
@@ -122,7 +113,7 @@ def run_test():
     cagr         = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
-    trades_df = pd.DataFrame(portfolio.trade_journal)
+    trades_df = pd.DataFrame(portfolio.trades)
     print(trades_df.to_string(index=False))
 
     print("\n--- Performance Summary ---")
@@ -131,7 +122,7 @@ def run_test():
     print(f"  CAGR            : {cagr:>10.2%}")
     print(f"  Sharpe Ratio    : {sharpe:>10.2f}")
     print(f"  Max Drawdown    : {max_drawdown:>10.2%}")
-    print(f"  Total Trades    : {len(trades_df):>10}")
+    print(f"  Total Trades    : {len(portfolio.trades):>10}")
     print("=" * 60)
 
 

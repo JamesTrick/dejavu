@@ -4,22 +4,52 @@ import numpy as np
 import pandas as pd
 
 from data.generate_data import generate_equity_csv, generate_options_csv
-from dejavu.data.feed import CombinedDataFeed
+from dejavu.data.feed import CSVDataFeed
 from dejavu.engine import BacktestEngine
-from dejavu.execution.commission import (
-    AssetClassCommission,
-    PerContractCommission,
-    TieredPerShareCommission,
-)
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
 from dejavu.portfolio import Portfolio
-from dejavu.schemas import AssetClass
-from dejavu.strategy.covered_call import CoveredCallStrategy
+from dejavu.schemas import AssetClass, MarketEvent, OrderType
+from dejavu.strategy.base import Strategy
+
+
+class SimpleStrategy(Strategy):
+
+    def __init__(self, portfolio: Portfolio, underlying: str):
+        super().__init__(portfolio)
+        self.portfolio = portfolio
+        self.underlying = underlying
+        self.previous_price = None
+
+    def on_market(self, event: MarketEvent):
+        orders = []
+        if self.previous_price is None:
+            self.previous_price = event.close
+            return orders
+
+        in_position = self.underlying in self.portfolio.positions
+
+        if event.close > self.previous_price and not in_position:
+            orders.append((self.buy(
+                self.underlying,
+                qty=10,
+                order_type=OrderType.MARKET,
+                asset_class=AssetClass.EQUITY,
+            ), {"asset_class": AssetClass.EQUITY})
+                )
+        elif event.close < self.previous_price and in_position:
+            orders.append((self.sell(
+                self.underlying,
+                qty=10,
+                order_type=OrderType.MARKET,
+                asset_class=AssetClass.EQUITY,
+            ), {"asset_class": AssetClass.EQUITY}))
+        self.previous_price = event.close
+        return orders
 
 
 def run_test():
     print("\n" + "=" * 60)
-    print("  BACKTEST: Covered Call Strategy")
+    print("  BACKTEST: Moving Average Strategy")
     print("=" * 60)
 
     start = datetime(2024, 1, 2)
@@ -41,21 +71,10 @@ def run_test():
 
     # ── Wire up components ────────────────────────────────────────
     portfolio = Portfolio(initial_capital=25_000)
-    strategy  = CoveredCallStrategy(portfolio, underlying="AAPL")
-    feed      = CombinedDataFeed("equity.csv", "options.csv")
+    strategy  = SimpleStrategy(portfolio, underlying="AAPL")
+    feed      = CSVDataFeed({"AAPL": "equity.csv"}, asset_classes={"AAPL": AssetClass.EQUITY})
     slippage  = VolumeWeightedSlippage(impact_factor=0.1)
-    commission_model = AssetClassCommission(
-        models={
-            AssetClass.EQUITY: TieredPerShareCommission(
-                rate=0.005,
-                minimum=1.00,
-                max_pct_notional=0.01,
-            ),
-            AssetClass.OPTION: PerContractCommission(rate=0.65),
-        },
-        default=PerContractCommission(rate=0.65),
-    )
-    executor  = SimulatedExecutionHandler(commission=commission_model, slippage=slippage)
+    executor  = SimulatedExecutionHandler(commission_per_contract=0.65, slippage=slippage)
     engine    = BacktestEngine(feed, strategy, portfolio, executor)
 
     # ── Run ───────────────────────────────────────────────────────
@@ -70,16 +89,14 @@ def run_test():
         np.sqrt(252) * returns.mean() / returns.std()
         if returns.std() > 0 else 0
     )
-
-    equity = history["equity"]
-    peak = equity.cummax()
+    equity       = history["equity"]
+    peak         = equity.cummax()
     max_drawdown = ((equity - peak) / peak).min()
-
-    years = max((equity.index[-1] - equity.index[0]).total_seconds() / (365.25 * 86400), 0.001)
-    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
+    years        = (equity.index[-1] - equity.index[0]).days / 365.25
+    cagr         = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
-    trades_df = pd.DataFrame(portfolio.trade_journal)
+    trades_df = pd.DataFrame(portfolio.trades)
     print(trades_df.to_string(index=False))
 
     print("\n--- Performance Summary ---")
@@ -88,7 +105,7 @@ def run_test():
     print(f"  CAGR            : {cagr:>10.2%}")
     print(f"  Sharpe Ratio    : {sharpe:>10.2f}")
     print(f"  Max Drawdown    : {max_drawdown:>10.2%}")
-    print(f"  Total Trades    : {len(trades_df):>10}")
+    print(f"  Total Trades    : {len(portfolio.trades):>10}")
     print("=" * 60)
 
 

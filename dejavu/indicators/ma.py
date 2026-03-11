@@ -1,5 +1,4 @@
 from collections import deque
-from typing import Optional
 
 from dejavu.indicators.base import SequentialIndicator
 
@@ -7,19 +6,36 @@ from dejavu.indicators.base import SequentialIndicator
 class SMA(SequentialIndicator):
     """Simple moving average. Used in trend following strategies, and also as the basis for more complex indicators
     like EMA and Bollinger Bands."""
+    def __init__(self, period: int):
+        super().__init__(period)
+        self._sum = 0.0
+
+    def update(self, price: float):
+        if len(self._buffer) == self.period:
+            self._sum -= self._buffer[0]
+
+        self._buffer.append(price)
+        self._sum += price
+
+        if len(self._buffer) == self.period:
+            self._value = self._sum / self.period
+        return self._value
+
     def _compute(self, bars: list[float]) -> float:
+        # No longer used in the hot path, but kept for API compatibility
         return sum(bars) / len(bars)
 
 
 class EMA(SequentialIndicator):
-    """Exponential moving average. More responsive to recent price changes than SMA, making it popular for short-term
-    trading and momentum strategies."""
+
     def __init__(self, period: int):
+        """Exponential moving average. More responsive to recent price changes than SMA, making it popular for short-term
+            trading and momentum strategies."""
         super().__init__(period)
-        self._ema: Optional[float] = None
+        self._ema: float | None = None
         self._k = 2 / (period + 1)
 
-    def update(self, price: float) -> Optional[float]:
+    def update(self, price: float) -> float | None:
         self._buffer.append(price)
         if len(self._buffer) == self.period and self._ema is None:
             # Seed with SMA of first `period` bars
@@ -33,37 +49,7 @@ class EMA(SequentialIndicator):
         return self._ema   # handled in update()
 
 
-class MACD:
-    """Not a single-period indicator so doesn't extend base."""
 
-    def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9):
-        self._fast   = EMA(fast)
-        self._slow   = EMA(slow)
-        self._signal = EMA(signal)
-        self.macd_line:   Optional[float] = None
-        self.signal_line: Optional[float] = None
-        self.histogram:   Optional[float] = None
-
-    def update(self, price: float) -> Optional[float]:
-        fast = self._fast.update(price)
-        slow = self._slow.update(price)
-
-        if fast is None or slow is None:
-            return None
-
-        self.macd_line = fast - slow
-        sig = self._signal.update(self.macd_line)
-
-        if sig is None:
-            return None
-
-        self.signal_line = sig
-        self.histogram   = self.macd_line - self.signal_line
-        return self.histogram
-
-    @property
-    def ready(self) -> bool:
-        return self.histogram is not None
 
 
 class BollingerBands:
@@ -72,9 +58,9 @@ class BollingerBands:
         self._period  = period
         self._num_std = num_std
         self._buffer  = deque(maxlen=period)
-        self.upper:  Optional[float] = None
-        self.middle: Optional[float] = None
-        self.lower:  Optional[float] = None
+        self.upper:  float | None = None
+        self.middle: float | None = None
+        self.lower:  float | None = None
 
     def update(self, price: float):
         self._buffer.append(price)
@@ -93,13 +79,13 @@ class BollingerBands:
         return self.middle is not None
 
     @property
-    def bandwidth(self) -> Optional[float]:
+    def bandwidth(self) -> float | None:
         if not self.ready:
             return None
         return (self.upper - self.lower) / self.middle
 
     @property
-    def percent_b(self, price: float) -> Optional[float]:
+    def percent_b(self, price: float) -> float | None:
         """Where is price within the bands? 0=lower, 1=upper."""
         if not self.ready:
             return None

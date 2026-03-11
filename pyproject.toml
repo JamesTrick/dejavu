@@ -2,7 +2,7 @@
 name = "dejavu"
 version = "0.0.1"
 description = "Extensible and flexible backtesting library for python supporting Equity, Option and Forex trading strategies."
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
     "pandas>=3.0.1",
 ]
@@ -10,12 +10,30 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-coverage>=0.0",
+    "pytest-mock>=3.15.1",
     "ruff>=0.15.4",
 ]
+docs = [
+    "mkdocstrings-python>=2.0.3",
+    "zensical>=0.0.24",
+]
+
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["dejavu*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 # Target version for syntax highlighting/checks
-target-version = "py39"
+target-version = "py312"
 line-length = 88 # The Black standard
 
 [tool.ruff.lint]
