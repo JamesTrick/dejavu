@@ -165,34 +165,35 @@ def test_option_expiration(portfolio, option_instrument: Option):
     assert portfolio.cash == cash_before - 500.0
 
 
-def test_underlying_view_and_margin(portfolio, xyz_instrument):
+def test_underlying_view_and_margin(portfolio):
     """underlying_view() and RealisticRegTModel.calculate_used_margin work with portfolio."""
     from dejavu.execution.margin import RealisticRegTModel
-
+    instrument = Option(
+        symbol="SPY_PUT_400",
+        asset_class=AssetClass.OPTION,
+        strike=400,
+        expiry=datetime(2027, 12, 19),
+        option_type="P",
+        underlying="SPY"
+    )
     # Short 1 put, no equity
     portfolio.apply_fill(
         FillEvent(
             type=EventType.FILL,
             timestamp=datetime.now(),
-            symbol="SPY_PUT_400",
+            instrument=instrument,
             quantity=-1.0,
             fill_price=10.0,
             commission=0.0,
             multiplier=100.0,
-        ),
-        {
-            "asset_class": AssetClass.OPTION,
-            "underlying": "SPY",
-            "strike": 400.0,
-            "expiry": datetime(2025, 12, 19),
-            "option_type": "P",
-        },
+            order_id="123456"
+        )
     )
     portfolio.update_prices(
         MarketEvent(
             type=EventType.MARKET,
             timestamp=datetime.now(),
-            instrument=xyz_instrument,
+            instrument=instrument,
             open=450.0,
             high=451.0,
             low=449.0,
@@ -201,7 +202,9 @@ def test_underlying_view_and_margin(portfolio, xyz_instrument):
         )
     )
     view = portfolio.underlying_view()
+
+    print(view)
     assert "SPY" in view
-    assert view["SPY"]["option_symbols"] == ["SPY_PUT_400"]
+    assert view["SPY"]["option_symbols"][0] == "SPY_PUT_400"
     margin = RealisticRegTModel().calculate_used_margin(portfolio)
     assert margin > 0

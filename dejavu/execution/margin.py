@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from dejavu.portfolio import Portfolio
+from dejavu.schemas import Option
 
 
 @dataclass
@@ -34,6 +35,7 @@ class RealisticRegTModel:
 
             for opt_sym in opt_symbols:
                 opt_pos = portfolio.positions[opt_sym]
+                instrument: Option = opt_pos.instrument
                 multiplier = getattr(opt_pos, 'multiplier', 100.0)
 
                 # Long options require no ongoing margin (paid upfront in cash)
@@ -42,9 +44,9 @@ class RealisticRegTModel:
 
                 # Short Options Logic
                 contracts = abs(opt_pos.quantity)
-                strike = opt_pos.strike or 0.0
+                strike = instrument.strike or 0.0
 
-                if opt_pos.option_type == "C":
+                if instrument.option_type == "C":
                     # Check if covered by stock
                     contracts_to_margin = contracts
                     if available_covered_shares >= 100:
@@ -61,7 +63,7 @@ class RealisticRegTModel:
                         per_share_req = max(rule_1, rule_2)
                         total_margin += contracts_to_margin * multiplier * per_share_req
 
-                elif opt_pos.option_type == "P":
+                elif instrument.option_type == "P":
                     # Naked Put Reg T Formula (assuming no short stock offsets for simplicity here)
                     otm_amount = max(0.0, current_u_price - strike)
                     rule_1 = (self.config.option_base_pct * current_u_price) - otm_amount

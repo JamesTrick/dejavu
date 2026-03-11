@@ -55,18 +55,27 @@ class Portfolio:
                 view.setdefault(sym, {"price": self._last_prices.get(sym, pos.avg_cost), "option_symbols": [],
                                       "equity_position": None})
                 view[sym]["equity_position"] = pos
-            elif isinstance(inst, Option):
-                u = inst.underlying
-                view.setdefault(u, {"price": self._last_prices.get(u, 0.0), "option_symbols": [],
-                                    "equity_position": self._positions.get(u) if self._positions.get(
-                                        u) and self._positions.get(
-                                        u).instrument.asset_class == AssetClass.EQUITY else None})
+            elif inst.asset_class == AssetClass.OPTION:
+                u = getattr(inst, "underlying", None)
+
+                if u is None:
+                    continue
+
+                view.setdefault(
+                    u,
+                    {
+                        "price": self._last_prices.get(u, 0.0),
+                        "option_symbols": [],
+                        "equity_position": self._positions.get(u) if self._positions.get(u) and self._positions.get(
+                            u).instrument.asset_class == AssetClass.EQUITY else None})
                 view[u]["option_symbols"].append(sym)
 
         for u, data in view.items():
-            if data["equity_position"] is None and u in self._positions and self._positions[
-                u].instrument.asset_class == AssetClass.EQUITY:
-                data["equity_position"] = self._positions[u]
+            if data["equity_position"] is None:
+                eq_pos = self._positions.get(u)
+                if eq_pos and eq_pos.instrument.asset_class == AssetClass.EQUITY:
+                    data["equity_position"] = eq_pos
+
         return view
 
     def update_prices(self, event: MarketEvent):
