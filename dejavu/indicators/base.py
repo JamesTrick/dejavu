@@ -31,22 +31,22 @@ class SequentialIndicator(ABC):
     def ready(self) -> bool:
         return self._value is not None
 
-    def __gt__(self, other: SequentialIndicator) -> bool:
+    def __gt__(self, other: "SequentialIndicator") -> bool:
         if not self.ready or not other.ready:
             return False
         return self.value > other.value
 
-    def __lt__(self, other: SequentialIndicator) -> bool:
+    def __lt__(self, other: "SequentialIndicator") -> bool:
         if not self.ready or not other.ready:
             return False
         return self.value < other.value
 
-    def __ge__(self, other: SequentialIndicator) -> bool:
+    def __ge__(self, other: "SequentialIndicator") -> bool:
         if not self.ready or not other.ready:
             return False
         return self.value >= other.value
 
-    def __le__(self, other: SequentialIndicator) -> bool:
+    def __le__(self, other: "SequentialIndicator") -> bool:
         if not self.ready or not other.ready:
             return False
         return self.value <= other.value

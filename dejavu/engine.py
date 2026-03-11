@@ -1,87 +1,17 @@
 from collections import defaultdict
-from datetime import datetime
 
 from dejavu.data.feed import DataFeed
 from dejavu.execution.orders import SimulatedExecutionHandler
 from dejavu.portfolio import Portfolio
 from dejavu.portfolio.rebalancing.base import Rebalancer
-from dejavu.schemas import MarketEvent, MultiLegOrder, Order
+from dejavu.schemas import FillTiming, MultiLegOrder, OrderType
 from dejavu.strategy.base import Strategy
 
 
-class _RustEngineDriver:
-    """Driver for RustBacktestEngine: provides next_event, get_pending, execute_order, etc."""
-
-    def __init__(self, feed, strategy, portfolio, executor, rebalancer):
-        self._feed_iter = iter(feed.stream())
-        self.strategy = strategy
-        self.portfolio = portfolio
-        self.executor = executor
-        self.rebalancer = rebalancer
-        self.pending = defaultdict(list)
-
-    def next_event(self):
-        try:
-            return next(self._feed_iter)
-        except StopIteration:
-            return None
-
-    def get_pending(self, symbol):
-        return self.pending.get(symbol, [])
-
-    def execute_order(self, order, meta, event):
-        fill = self.executor.execute(order, event)
-        if fill:
-            sym = order.symbol
-            for i, (o, m) in enumerate(self.pending[sym]):
-                if o is order and m is meta:
-                    del self.pending[sym][i]
-                    break
-        return fill
-
-    def should_rebalance(self, event):
-        if not self.rebalancer:
-            return False
-        return self.rebalancer.should_rebalance(event.timestamp, self.portfolio)
-
-    def get_rebalance_orders(self, event):
-        if not self.rebalancer:
-            return []
-        return self.rebalancer.generate_orders(
-            timestamp=event.timestamp,
-            portfolio=self.portfolio,
-            target_weights={},
-            prices=self.portfolio.prices,
-        )
-
-    def get_strategy_orders(self, event):
-        result = []
-        for order, meta in self.strategy.on_market(event):
-            if type(order) is MultiLegOrder:
-                legs_meta = meta.get("legs_meta") or [{}] * len(order.legs)
-                result.extend(
-                    (leg, leg_meta) for leg, leg_meta in zip(order.legs, legs_meta)
-                )
-            else:
-                result.append((order, meta))
-        return result
-
-    def add_pending(self, symbol, order, meta):
-        self.pending[symbol].append((order, meta))
-
-    def sync_portfolio(self, rust_portfolio):
-        """Sync the wrapper's _rust to the engine's portfolio so rebalance/strategy see current state."""
-        self.portfolio._rust = rust_portfolio
-        self.portfolio.cash = rust_portfolio.cash
-
-    def set_history(self, ts, equity, cash):
-        self.portfolio.history = [
-            {"timestamp": datetime.fromtimestamp(t), "equity": e, "cash": c}
-            for t, e, c in zip(ts, equity, cash)
-        ]
-
-
 class BacktestEngine:
+    """The Backtesting Engine is arguably the heart of Dejavu. It's incredibly performant, processing over 3.5 million
+    bars per second. Given the speed, Dejavu can handle all sorts of data, making it quite flexible across the board.
+    """
     def __init__(
         self,
         feed:      DataFeed,
@@ -89,33 +19,29 @@ class BacktestEngine:
         portfolio: Portfolio,
         executor:  SimulatedExecutionHandler,
         rebalancer: Rebalancer | None = None,
+        fill_timing: FillTiming = FillTiming.NEXT_BAR
     ):
+        """
+
+        Args:
+            feed:
+            strategy:
+            portfolio:
+            executor:
+            rebalancer:
+            fill_timing: When you want the bars filled. Defaults to NextBar, but can be switched to SAME_BAR if
+                dealing with intraday data.
+        """
         self.feed      = feed
         self.strategy  = strategy
         self.portfolio = portfolio
         self.executor  = executor
         self.rebalancer = rebalancer
+        self.fill_timing = fill_timing
 
-    def run(self, use_rust_engine: bool = True):
+    def run(self):
         portfolio = self.portfolio
-        if use_rust_engine and getattr(portfolio, "_rust", None) is not None:
-            try:
-                from dejavu._core import RustBacktestEngine
-                engine = RustBacktestEngine(portfolio.initial_capital)
-                driver = _RustEngineDriver(
-                    self.feed,
-                    self.strategy,
-                    portfolio,
-                    self.executor,
-                    self.rebalancer,
-                )
-                engine.run(driver)
-                portfolio._rust = engine.portfolio
-                portfolio.cash = engine.portfolio.cash
-                return
-            except ImportError:
-                pass
-
+        # Pending orders now just store (order, originating_event)
         pending_by_symbol = defaultdict(list)
 
         rebalancer = self.rebalancer
@@ -131,24 +57,24 @@ class BacktestEngine:
 
         for event in self.feed.stream():
             update_prices(event)
-            sym = event.symbol
-
-            # Process Pending Orders
-            if pending_by_symbol[sym]:
+            sym = event.instrument.symbol
+            # 1. Process Pending Orders
+            pending = pending_by_symbol.get(sym)
+            if pending:
                 still_pending = []
-                for order, meta, _ in pending_by_symbol[sym]:
+                for order, originating_event in pending:
                     fill = executor.execute(order, event)
                     if fill:
-                        apply_fill(fill, meta)
+                        apply_fill(fill)
                     else:
-                        still_pending.append((order, meta, event))
+                        still_pending.append((order, originating_event))
 
                 if still_pending:
                     pending_by_symbol[sym] = still_pending
                 else:
-                    del pending_by_symbol[sym] # Keep dict lean
+                    del pending_by_symbol[sym]
 
-            # Rebalancing
+            # 2. Rebalancing
             if rebalancer and rebalancer.should_rebalance(event.timestamp, portfolio):
                 for order in rebalancer.generate_orders(
                     timestamp=event.timestamp,
@@ -156,26 +82,35 @@ class BacktestEngine:
                     target_weights={},
                     prices=portfolio.prices,
                 ):
-                    pending_by_symbol[order.symbol].append((order, {}, event))
+                    # Route by instrument.symbol
+                    pending_by_symbol[order.instrument.symbol].append((order, event))
 
-            # Strategy reacts
-            # STRONGLY RECOMMENDED: Refactor strategy to return flat lists of simple Orders
-            for order, meta in strategy.on_market(event):
-                # If you must keep the MultiLeg logic, do it here, but it's better removed
-                if type(order) is MultiLegOrder: # type() is slightly faster than isinstance()
-                    legs_meta = meta.get("legs_meta") or [{}] * len(order.legs)
-                    for leg, leg_meta in zip(order.legs, legs_meta):
-                        pending_by_symbol[leg.symbol].append((leg, leg_meta, event))
-                else:
-                    pending_by_symbol[order.symbol].append((order, meta, event))
+            # 3. Strategy reacts
+            # We assume Strategy.on_market now just yields Orders directly, no meta dicts!
+            for order in strategy.on_market(event):
+                legs = order.legs if isinstance(order, MultiLegOrder) else [order]
+                for o in legs:
+                    if (
+                            self.fill_timing == FillTiming.SAME_BAR
+                            and o.order_type == OrderType.MARKET
+                            and o.instrument.symbol == sym
+                    ):
+                        fill = executor.execute(o, event)
+                        if fill:
+                            apply_fill(fill)
+                        else:
+                            # Couldn't fill even same-bar, queue it
+                            pending_by_symbol[o.instrument.symbol].append((o, event))
+                    else:
+                        pending_by_symbol[o.instrument.symbol].append((o, event))
 
-            # Fast History Tracking (Append to flat lists, zip at the end if needed)
+            # 4. Record History
             hist_timestamps.append(event.timestamp)
-            hist_equity.append(portfolio.equity) # (Still a bottleneck if equity is calculated dynamically)
+            hist_equity.append(portfolio.equity)
             hist_cash.append(portfolio.cash)
 
-        # Reconstruct history format at the very end
+
         portfolio.history = [
             {"timestamp": t, "equity": e, "cash": c}
-            for t, e, c in zip(hist_timestamps, hist_equity, hist_cash)
+            for t, e, c in zip(hist_timestamps, hist_equity, hist_cash, strict=True)
         ]

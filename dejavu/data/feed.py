@@ -1,38 +1,24 @@
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
-from dataclasses import dataclass
-from datetime import datetime
+from collections.abc import AsyncIterator, Iterator
 
 import pandas as pd
 
-from ..schemas import AssetClass, EventType, MarketEvent, OptionMarketEvent
-
-
-@dataclass
-class BarData:
-    """Normalized bar — optional intermediate; feeds may yield MarketEvent / OptionMarketEvent directly."""
-    timestamp: datetime
-    symbol: str
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: float
-    asset_class: AssetClass
-    # Options fields (None for non-options)
-    underlying: str | None = None
-    strike: float | None = None
-    expiry: datetime | None = None
-    option_type: str | None = None  # "C" or "P"
-    iv: float | None = None
-    delta: float | None = None
-    gamma: float | None = None
-    theta: float | None = None
-    vega: float | None = None
+from ..schemas import (
+    AssetClass,
+    EventType,
+    Instrument,
+    MarketEvent,
+    Option,
+)
 
 
 class DataFeed(ABC):
     """Event-based feed: stream() yields market events in time order. No symbols/start/end — feed owns its source."""
+
+    @abstractmethod
+    def stream(self) -> Iterator[MarketEvent] | AsyncIterator[MarketEvent]:
+        """All feeds must implement a streaming mechanism."""
+        pass
 
     def supports_asset_class(self, asset_class: AssetClass) -> bool:
         """Override if the feed only supports certain asset classes. Default: all supported."""
@@ -48,7 +34,7 @@ class RESTDataFeed(DataFeed, ABC):
 class LiveDataFeed(DataFeed, ABC):
 
     @abstractmethod
-    async def stream(self) -> Iterator[MarketEvent]:
+    async def stream(self) -> AsyncIterator[MarketEvent]:
         ...
 
     async def connect(self) -> None:
@@ -67,6 +53,7 @@ class CSVDataFeed(DataFeed):
 
     def stream(self) -> Iterator[MarketEvent]:
         frames = []
+        instruments = {}
         for symbol, path in self.paths.items():
             df = pd.read_csv(path, parse_dates=["timestamp"])
             df["symbol"] = symbol
@@ -74,17 +61,24 @@ class CSVDataFeed(DataFeed):
 
         combined = pd.concat(frames).sort_values("timestamp")
 
-        for _, row in combined.iterrows():
+        for row in combined.itertuples(index=False):
+            sym = row.symbol
+
+            instruments[sym] = Instrument(
+                symbol=sym,
+                asset_class=AssetClass.EQUITY,
+                multiplier=1.0,
+            )
+
             yield MarketEvent(
                 type=EventType.MARKET,
-                timestamp=row["timestamp"],
-                symbol=row["symbol"],
-                open=row["open"],
-                high=row["high"],
-                low=row["low"],
-                close=row["close"],
-                volume=row["volume"],
-                asset_class=self.asset_classes[row["symbol"]],
+                timestamp=row.timestamp,
+                instrument=instruments[sym],
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.close),
+                volume=float(row.volume)
             )
 
 
@@ -110,39 +104,40 @@ class CombinedDataFeed(DataFeed):
         )
 
     def stream(self) -> Iterator[MarketEvent]:
-        for _, row in self.data.iterrows():
-            is_option = row.get("asset_class_order", 0) == 1
+        instruments = {}
 
-            if not is_option:
-                yield MarketEvent(
-                    type=EventType.MARKET,
-                    timestamp=row["timestamp"],
-                    symbol=row["symbol"],
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=float(row["volume"]),
-                    asset_class=AssetClass.EQUITY,
-                )
-            else:
-                yield OptionMarketEvent(
-                    type=EventType.MARKET,
-                    timestamp=row["timestamp"],
-                    symbol=row["symbol"],
-                    open=float(row["open"]),
-                    high=float(row["high"]),
-                    low=float(row["low"]),
-                    close=float(row["close"]),
-                    volume=float(row["volume"]),
-                    asset_class=AssetClass.OPTION,
-                    underlying=str(row["underlying"]),
-                    strike=float(row["strike"]),
-                    expiry=row["expiry"],
-                    option_type=str(row["option_type"]),
-                    iv=float(row["iv"]),
-                    delta=float(row["delta"]),
-                    gamma=float(row["gamma"]),
-                    theta=float(row["theta"]),
-                    vega=float(row["vega"]),
-                )
+        for row in self.data.itertuples(index=False):
+            sym = row.symbol
+
+            if sym not in instruments:
+                is_option = row.asset_class_order == 1
+                if is_option:
+                    instruments[sym] = Option(
+                        symbol=sym,
+                        asset_class=AssetClass.OPTION,
+                        underlying=row.underlying,
+                        strike=float(row.strike),
+                        expiry=row.expiry,
+                        option_type=row.option_type,
+                        multiplier=100.0,
+                    )
+                else:
+                    instruments[sym] = Instrument(
+                        symbol=sym,
+                        asset_class=AssetClass.EQUITY,
+                        multiplier=1.0,
+                    )
+
+            yield MarketEvent(
+                type=EventType.MARKET,
+                timestamp=row.timestamp,
+                instrument=instruments[sym],
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.close),
+                volume=float(row.volume),
+                iv=float(row.iv) if row.iv else None,
+                delta=float(row.delta) if row.delta else None,
+                gamma=float(row.gamma) if row.gamma else None,
+            )

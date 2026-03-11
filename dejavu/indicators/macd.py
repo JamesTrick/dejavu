@@ -1,7 +1,5 @@
-from typing import Optional
 
 from .base import SequentialIndicator
-from .ma import EMA
 
 
 class MACD(SequentialIndicator):
@@ -35,16 +33,16 @@ class MACD(SequentialIndicator):
         self.sig_k = 2.0 / (signal + 1)
 
         # State tracking
-        self._fast_ema: Optional[float] = None
-        self._slow_ema: Optional[float] = None
-        self._sig_ema: Optional[float] = None
+        self._fast_ema: float | None = None
+        self._slow_ema: float | None = None
+        self._sig_ema: float | None = None
 
         # Temporary buffers for seeding
         self._fast_buf = []
         self._slow_buf = []
         self._sig_buf = []
 
-    def update(self, price: float) -> Optional[tuple[float, float, float]]:
+    def update(self, price: float) -> tuple[float, float, float] | None:
         # 1. Fast EMA
         if self._fast_ema is None:
             self._fast_buf.append(price)

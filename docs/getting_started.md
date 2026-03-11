@@ -18,3 +18,21 @@ class SimpleStrategy(Strategy):
             self.sell()
         self.previous_price = event.close
 ```
+
+
+Of course, this is a relatively simple strategy, and certainly not reflective of reality. Let's start by addressing the
+inveitable. Commissions.
+
+To add commissions to your strategy, you can use an ExecutionHandler. The basic one and most easiest one to get started
+is the `CommissionOnlyHandler()`
+
+```python
+from dejavu.execution.orders import CommissionOnlyHandler
+
+executor  = CommissionOnlyHandler(commission_per_contract=0.65)
+engine    = BacktestEngine(feed, strategy, portfolio, executor)
+```
+
+For more advanced or complex trading strategies, you may want to look at our other ExecutionHandlers, or craft your own.
+
+For example SimulatedExecutionHandler handles slippage which becomes critical in large trades or less liquid asset classes.

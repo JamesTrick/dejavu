@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 from dejavu.data.feed import DataFeed
 from dejavu.engine import BacktestEngine
+from dejavu.execution.commission import PerContractCommission
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
 from dejavu.indicators.ma import EMA, SMA
 from dejavu.indicators.macd import MACD
@@ -12,14 +13,27 @@ from dejavu.schemas import (
     AssetClass,
     EventType,
     FillEvent,
+    FillTiming,
+    Instrument,
     MarketEvent,
+    Order,
     OrderType,
 )
 from dejavu.strategy.base import Strategy
 
+# ─────────────────────────────────────────────
+# Shared fixtures
+# ─────────────────────────────────────────────
+
+EQUITY_INSTRUMENT = Instrument(
+    symbol="SYM",
+    asset_class=AssetClass.EQUITY,
+    multiplier=1.0,
+)
+
 
 class InMemoryFeed(DataFeed):
-    """Feed that yields a pre-built list of events. Used for performance tests without CSV I/O."""
+    """Feed that yields a pre-built list of events. No CSV I/O."""
 
     def __init__(self, events: list[MarketEvent]):
         self._events = events
@@ -33,63 +47,101 @@ def make_events(
     n_bars: int = 10_000,
     start_ts: datetime | None = None,
     base_price: float = 100.0,
+    instrument: Instrument | None = None,
 ) -> list[MarketEvent]:
-    """Generate n_bars MarketEvents with simple OHLCV. No randomness for reproducibility."""
+    """
+    Generate n_bars MarketEvents with simple OHLCV.
+    No randomness — fully reproducible.
+    """
     if start_ts is None:
         start_ts = datetime(2024, 1, 1, 9, 30)
+    if instrument is None:
+        instrument = Instrument(symbol=symbol, asset_class=AssetClass.EQUITY, multiplier=1.0)
+
     events = []
     for i in range(n_bars):
         ts = start_ts + timedelta(minutes=i)
-        open = base_price + i * 0.01
-        high = open + 0.5
-        low = open - 0.5
-        close = open + 0.1
-        vol = 1_000_000.0
+        open_ = base_price + i * 0.01
         events.append(
             MarketEvent(
+                instrument=instrument,
                 type=EventType.MARKET,
                 timestamp=ts,
-                symbol=symbol,
-                open=open,
-                high=high,
-                low=low,
-                close=close,
-                volume=vol,
-                asset_class=AssetClass.EQUITY,
+                open=open_,
+                high=open_ + 0.5,
+                low=open_ - 0.5,
+                close=open_ + 0.1,
+                volume=1_000_000.0,
             )
         )
     return events
 
 
-class NoOpStrategy(Strategy):
-    """Strategy that does nothing. Used to measure engine/portfolio/executor overhead."""
+# ─────────────────────────────────────────────
+# Strategies
+# ─────────────────────────────────────────────
 
-    def on_market(self, event: MarketEvent):
+
+class NoOpStrategy(Strategy):
+    """Does nothing. Measures pure engine + portfolio + feed overhead."""
+
+    def on_market(self, event: MarketEvent) -> list:
         return []
 
 
 class SimpleBuySellStrategy(Strategy):
-    """Minimal strategy: buy on first bar, sell on last. Generates 2 orders total."""
+    """Buys 10 shares on the first bar, never sells. Generates 1 order total."""
 
-    def __init__(self, portfolio: Portfolio, symbol: str):
+    def __init__(self, portfolio: Portfolio, instrument: Instrument):
         super().__init__(portfolio)
-        self.symbol = symbol
+        self.instrument = instrument
         self.bought = False
 
-    def on_market(self, event: MarketEvent):
-        if not self.bought:
+    def on_market(self, event: MarketEvent) -> list:
+        if not self.bought and event.instrument.symbol == self.instrument.symbol:
             self.bought = True
-            return [(self.buy(self.symbol, qty=10, order_type=OrderType.MARKET, asset_class=AssetClass.EQUITY), {"asset_class": AssetClass.EQUITY})]
+            return [
+                Order(
+                    instrument=self.instrument,
+                    quantity=10.0,
+                    order_type=OrderType.MARKET,
+                )
+            ]
         return []
 
 
-def _run_engine_perf(n_bars: int, strategy_factory=lambda p: NoOpStrategy(p), label: str = ""):
+# ─────────────────────────────────────────────
+# Engine runner helper
+# ─────────────────────────────────────────────
+
+
+def _build_executor() -> SimulatedExecutionHandler:
+    return SimulatedExecutionHandler(
+        commission=PerContractCommission(rate=0.65),
+        slippage=VolumeWeightedSlippage(impact_factor=0.0),
+    )
+
+
+def _run_engine_perf(
+    n_bars: int,
+    strategy_factory=None,
+    fill_timing: FillTiming = FillTiming.NEXT_BAR,
+) -> tuple[float, float, float]:
+    """
+    Returns (elapsed_seconds, microseconds_per_bar, bars_per_second).
+    """
+    if strategy_factory is None:
+        strategy_factory = lambda p: NoOpStrategy(p)
+
     events = make_events(n_bars=n_bars)
-    feed = InMemoryFeed(events)
     portfolio = Portfolio(initial_capital=100_000)
-    strategy = strategy_factory(portfolio)
-    executor = SimulatedExecutionHandler(slippage=VolumeWeightedSlippage(impact_factor=0.0))
-    engine = BacktestEngine(feed, strategy, portfolio, executor)
+    engine = BacktestEngine(
+        feed=InMemoryFeed(events),
+        strategy=strategy_factory(portfolio),
+        portfolio=portfolio,
+        executor=_build_executor(),
+        fill_timing=fill_timing,
+    )
 
     t0 = time.perf_counter()
     engine.run()
@@ -100,42 +152,82 @@ def _run_engine_perf(n_bars: int, strategy_factory=lambda p: NoOpStrategy(p), la
     return elapsed, per_bar_us, bars_per_sec
 
 
-def test_perf_engine_run_5k_bars_no_orders(capsys):
-    """Time full backtest: 5k bars, no strategy orders (engine + portfolio + feed iteration)."""
+# ─────────────────────────────────────────────
+# Engine performance tests
+# ─────────────────────────────────────────────
+
+
+def test_perf_engine_5k_bars_no_orders(capsys):
+    """5k bars, no orders — measures engine + portfolio + feed iteration."""
     n = 5_000
-    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(n, label="no_orders")
+    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(n)
     with capsys.disabled():
-        print(f"\n  [perf] engine run ({n} bars, no orders): {elapsed:.3f}s total, {per_bar_us:.1f} µs/bar, {bars_per_sec:,.0f} bars/s")
-    assert elapsed >= 0
+        print(
+            f"\n  [perf] engine ({n} bars, no orders): "
+            f"{elapsed:.3f}s | {per_bar_us:.1f} µs/bar | {bars_per_sec:,.0f} bars/s"
+        )
     assert bars_per_sec > 0
 
 
-def test_perf_engine_run_10k_bars_no_orders(capsys):
-    """Time full backtest: 10k bars, no strategy orders."""
+def test_perf_engine_10k_bars_no_orders(capsys):
+    """10k bars, no orders."""
     n = 10_000
-    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(n, label="no_orders")
+    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(n)
     with capsys.disabled():
-        print(f"\n  [perf] engine run ({n} bars, no orders): {elapsed:.3f}s total, {per_bar_us:.1f} µs/bar, {bars_per_sec:,.0f} bars/s")
-    assert elapsed >= 0
+        print(
+            f"\n  [perf] engine ({n} bars, no orders): "
+            f"{elapsed:.3f}s | {per_bar_us:.1f} µs/bar | {bars_per_sec:,.0f} bars/s"
+        )
     assert bars_per_sec > 0
 
 
-def test_perf_engine_run_10k_bars_with_one_buy(capsys):
-    """Time full backtest: 10k bars, one buy order (strategy + execution + portfolio apply_fill)."""
+def test_perf_engine_10k_bars_one_buy_next_bar(capsys):
+    """10k bars, one market buy order, NEXT_BAR fill timing."""
     n = 10_000
 
-    def strategy_factory(portfolio):
-        return SimpleBuySellStrategy(portfolio, "SYM")
+    def strategy_factory(p):
+        return SimpleBuySellStrategy(p, EQUITY_INSTRUMENT)
 
-    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(n, strategy_factory=strategy_factory, label="one_buy")
+    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(
+        n,
+        strategy_factory=strategy_factory,
+        fill_timing=FillTiming.NEXT_BAR,
+    )
     with capsys.disabled():
-        print(f"\n  [perf] engine run ({n} bars, 1 buy): {elapsed:.3f}s total, {per_bar_us:.1f} µs/bar, {bars_per_sec:,.0f} bars/s")
-    assert elapsed >= 0
+        print(
+            f"\n  [perf] engine ({n} bars, 1 buy, NEXT_BAR): "
+            f"{elapsed:.3f}s | {per_bar_us:.1f} µs/bar | {bars_per_sec:,.0f} bars/s"
+        )
     assert bars_per_sec > 0
+
+
+def test_perf_engine_10k_bars_one_buy_same_bar(capsys):
+    """10k bars, one market buy order, SAME_BAR fill timing."""
+    n = 10_000
+
+    def strategy_factory(p):
+        return SimpleBuySellStrategy(p, EQUITY_INSTRUMENT)
+
+    elapsed, per_bar_us, bars_per_sec = _run_engine_perf(
+        n,
+        strategy_factory=strategy_factory,
+        fill_timing=FillTiming.SAME_BAR,
+    )
+    with capsys.disabled():
+        print(
+            f"\n  [perf] engine ({n} bars, 1 buy, SAME_BAR): "
+            f"{elapsed:.3f}s | {per_bar_us:.1f} µs/bar | {bars_per_sec:,.0f} bars/s"
+        )
+    assert bars_per_sec > 0
+
+
+# ─────────────────────────────────────────────
+# Indicator performance tests
+# ─────────────────────────────────────────────
 
 
 def test_perf_indicators_sma_50k_updates(capsys):
-    """Time SMA(20) over 50k price updates."""
+    """SMA(20) over 50k price updates."""
     sma = SMA(period=20)
     n = 50_000
     t0 = time.perf_counter()
@@ -144,13 +236,15 @@ def test_perf_indicators_sma_50k_updates(capsys):
     elapsed = time.perf_counter() - t0
     per_update_us = (elapsed / n) * 1_000_000
     with capsys.disabled():
-        print(f"\n  [perf] SMA(20) {n} updates: {elapsed:.3f}s total, {per_update_us:.2f} µs/update")
-    assert elapsed >= 0
+        print(
+            f"\n  [perf] SMA(20) {n} updates: "
+            f"{elapsed:.3f}s | {per_update_us:.2f} µs/update"
+        )
     assert sma.ready
 
 
 def test_perf_indicators_ema_50k_updates(capsys):
-    """Time EMA(20) over 50k price updates."""
+    """EMA(20) over 50k price updates."""
     ema = EMA(period=20)
     n = 50_000
     t0 = time.perf_counter()
@@ -159,13 +253,15 @@ def test_perf_indicators_ema_50k_updates(capsys):
     elapsed = time.perf_counter() - t0
     per_update_us = (elapsed / n) * 1_000_000
     with capsys.disabled():
-        print(f"\n  [perf] EMA(20) {n} updates: {elapsed:.3f}s total, {per_update_us:.2f} µs/update")
-    assert elapsed >= 0
+        print(
+            f"\n  [perf] EMA(20) {n} updates: "
+            f"{elapsed:.3f}s | {per_update_us:.2f} µs/update"
+        )
     assert ema.ready
 
 
 def test_perf_indicators_macd_50k_updates(capsys):
-    """Time MACD(12,26,9) over 50k price updates."""
+    """MACD(12, 26, 9) over 50k price updates."""
     macd = MACD(fast=12, slow=26, signal=9)
     n = 50_000
     t0 = time.perf_counter()
@@ -174,118 +270,113 @@ def test_perf_indicators_macd_50k_updates(capsys):
     elapsed = time.perf_counter() - t0
     per_update_us = (elapsed / n) * 1_000_000
     with capsys.disabled():
-        print(f"\n  [perf] MACD(12,26,9) {n} updates: {elapsed:.3f}s total, {per_update_us:.2f} µs/update")
-    assert elapsed >= 0
+        print(
+            f"\n  [perf] MACD(12,26,9) {n} updates: "
+            f"{elapsed:.3f}s | {per_update_us:.2f} µs/update"
+        )
     assert macd.ready
 
 
-# ----- Feed stream (iteration only) -----
+# ─────────────────────────────────────────────
+# Feed performance tests
+# ─────────────────────────────────────────────
 
 
 def test_perf_feed_stream_50k_events(capsys):
-    """Time iterating 50k events from in-memory feed (no engine)."""
+    """Iterate 50k events from in-memory feed — no engine overhead."""
     n = 50_000
     events = make_events(n_bars=n)
     feed = InMemoryFeed(events)
+
     t0 = time.perf_counter()
-    count = 0
-    for _ in feed.stream():
-        count += 1
+    count = sum(1 for _ in feed.stream())
     elapsed = time.perf_counter() - t0
+
     per_event_us = (elapsed / n) * 1_000_000
     with capsys.disabled():
-        print(f"\n  [perf] feed stream {n} events: {elapsed:.3f}s total, {per_event_us:.2f} µs/event, count={count}")
+        print(
+            f"\n  [perf] feed stream {n} events: "
+            f"{elapsed:.3f}s | {per_event_us:.2f} µs/event | count={count}"
+        )
     assert count == n
-    assert elapsed >= 0
 
 
-# ----- Portfolio: update_prices + apply_fill -----
+# ─────────────────────────────────────────────
+# Portfolio performance tests
+# ─────────────────────────────────────────────
 
 
-def test_perf_portfolio_10k_updates(capsys):
-    """Time 10k portfolio.update_prices() calls (no fills)."""
+def test_perf_portfolio_10k_price_updates(capsys):
+    """10k portfolio.update_prices() calls with no fills."""
     portfolio = Portfolio(initial_capital=100_000)
     events = make_events(n_bars=10_000)
+
     t0 = time.perf_counter()
     for ev in events:
         portfolio.update_prices(ev)
     elapsed = time.perf_counter() - t0
+
     per_us = (elapsed / len(events)) * 1_000_000
     with capsys.disabled():
-        print(f"\n  [perf] portfolio update_prices x{len(events)}: {elapsed:.3f}s total, {per_us:.2f} µs/update")
+        print(
+            f"\n  [perf] portfolio.update_prices x{len(events)}: "
+            f"{elapsed:.3f}s | {per_us:.2f} µs/update"
+        )
     assert elapsed >= 0
 
 
-def test_perf_portfolio_1k_fills(capsys):
-    """Time 1k apply_fill() calls (buy then sell pattern)."""
+def test_perf_portfolio_1k_round_trip_fills(capsys):
+    """1k buy+sell round trips through portfolio.apply_fill() — 2k fills total."""
     portfolio = Portfolio(initial_capital=1_000_000)
     ts = datetime(2024, 1, 1)
+    n_round_trips = 1_000
+
     t0 = time.perf_counter()
-    for i in range(1000):
-        buy = FillEvent(
-            type=EventType.FILL,
-            timestamp=ts,
-            symbol="SYM",
-            quantity=100,
-            fill_price=100.0 + i * 0.01,
-            commission=1.0,
-            multiplier=1,
+    for i in range(n_round_trips):
+        price = 100.0 + i * 0.01
+
+        buy_order = Order(
+            instrument=EQUITY_INSTRUMENT,
+            quantity=100.0,
+            order_type=OrderType.MARKET,
         )
-        portfolio.apply_fill(buy, {"asset_class": AssetClass.EQUITY})
-        sell = FillEvent(
-            type=EventType.FILL,
-            timestamp=ts,
-            symbol="SYM",
-            quantity=-100,
-            fill_price=100.0 + i * 0.01 + 0.1,
-            commission=1.0,
-            multiplier=1,
+        portfolio.apply_fill(
+            FillEvent(
+                type=EventType.FILL,
+                timestamp=ts,
+                order_id=buy_order.order_id,
+                instrument=EQUITY_INSTRUMENT,
+                quantity=100.0,
+                fill_price=price,
+                commission=1.0,
+                multiplier=1.0,
+            )
         )
-        portfolio.apply_fill(sell, {"asset_class": AssetClass.EQUITY})
+
+        sell_order = Order(
+            instrument=EQUITY_INSTRUMENT,
+            quantity=-100.0,
+            order_type=OrderType.MARKET,
+        )
+        portfolio.apply_fill(
+            FillEvent(
+                type=EventType.FILL,
+                timestamp=ts,
+                order_id=sell_order.order_id,
+                instrument=EQUITY_INSTRUMENT,
+                quantity=-100.0,
+                fill_price=price + 0.10,
+                commission=1.0,
+                multiplier=1.0,
+            )
+        )
+
     elapsed = time.perf_counter() - t0
-    per_us = (elapsed / 2000) * 1_000_000  # 2k fills
+    n_fills = n_round_trips * 2
+    per_us = (elapsed / n_fills) * 1_000_000
     with capsys.disabled():
-        print(f"\n  [perf] portfolio apply_fill x2000 (1k round-trips): {elapsed:.3f}s total, {per_us:.2f} µs/fill")
+        print(
+            f"\n  [perf] portfolio.apply_fill x{n_fills} ({n_round_trips} round-trips): "
+            f"{elapsed:.3f}s | {per_us:.2f} µs/fill"
+        )
     assert elapsed >= 0
-
-from dejavu._core import RustPortfolio
-
-
-def test_perf_new_portfolio_1k_fills(capsys):
-    """Time 1k apply_fill() calls using the Rust backend."""
-    # 1. Setup
-    initial_capital = 1_000_000.0
-    portfolio = RustPortfolio(initial_capital)
-    ts = datetime(2024, 1, 1)
-    ts_int = int(ts.timestamp())  # Pre-calculate to measure pure logic speed
-
-    # 2. Timing Loop
-    # We measure the cost of calling the Rust FFI
-    t0 = time.perf_counter()
-
-    for i in range(1000):
-        # We simulate the price moving slightly
-        buy_price = 100.0 + (i * 0.01)
-        sell_price = buy_price + 0.1
-
-        # Call Rust directly
-        # Arguments: symbol, qty, price, comm, multiplier, timestamp, position_meta
-        portfolio.apply_fill("SYM", 100.0, buy_price, 1.0, 1.0, ts_int, None)
-        portfolio.apply_fill("SYM", -100.0, sell_price, 1.0, 1.0, ts_int, None)
-
-    elapsed = time.perf_counter() - t0
-
-    # 3. Reporting
-    total_fills = 2000
-    per_us = (elapsed / total_fills) * 1_000_000
-
-    with capsys.disabled():
-        print(f"\n  [perf] RUST portfolio apply_fill x2000: {elapsed:.4f}s total, {per_us:.3f} µs/fill")
-
-    # 4. Correctness Assertions
-    # Verify the math actually happened in Rust
-    # Each round trip: Profit = (0.1 * 100) - 2.0 (comm) = 8.0
-    # 1000 round trips = 8000.0 profit
-    expected_cash = initial_capital + 8000.0
-    assert abs(portfolio.cash - expected_cash) < 1e-7
-    assert elapsed > 0
