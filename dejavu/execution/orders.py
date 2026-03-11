@@ -76,12 +76,9 @@ class CommissionOnlyHandler(ExecutionHandler):
                 return None   # not filled
         else:
             return None
-
-        # FIX: The instrument already knows its multiplier!
         multiplier = order.instrument.multiplier
         commission = self.commission.calculate(order, fill_price, multiplier)
 
-        # FIX: Construct the new FillEvent format
         return FillEvent(
             type=EventType.FILL,
             timestamp=market.timestamp,
@@ -90,7 +87,6 @@ class CommissionOnlyHandler(ExecutionHandler):
             quantity=order.quantity,
             fill_price=fill_price,
             commission=commission,
-            multiplier=multiplier,
         )
 
 
@@ -139,7 +135,6 @@ class SimulatedExecutionHandler(ExecutionHandler):
                 quantity=float(order.quantity),
                 fill_price=float(fill_price),
                 commission=float(commission),
-                multiplier=multiplier,
             )
 
         except Exception as e:

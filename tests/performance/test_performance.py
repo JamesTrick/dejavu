@@ -49,9 +49,7 @@ def make_events(
     base_price: float = 100.0,
     instrument: Instrument | None = None,
 ) -> list[MarketEvent]:
-    """
-    Generate n_bars MarketEvents with simple OHLCV.
-    No randomness — fully reproducible.
+    """Generate n_bars MarketEvents with simple OHLCV. No randomness — fully reproducible.
     """
     if start_ts is None:
         start_ts = datetime(2024, 1, 1, 9, 30)
@@ -349,7 +347,6 @@ def test_perf_portfolio_1k_round_trip_fills(capsys):
                 quantity=100.0,
                 fill_price=price,
                 commission=1.0,
-                multiplier=1.0,
             )
         )
 
@@ -367,7 +364,6 @@ def test_perf_portfolio_1k_round_trip_fills(capsys):
                 quantity=-100.0,
                 fill_price=price + 0.10,
                 commission=1.0,
-                multiplier=1.0,
             )
         )
 

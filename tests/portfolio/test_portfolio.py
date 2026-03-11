@@ -30,9 +30,9 @@ def option_instrument() -> Option:
         symbol="AAPL240621C100",
         underlying="AAPL",
         asset_class=AssetClass.OPTION,
-        strike=400.0,
-        expiry=datetime(2025, 12, 19),
-        option_type="P"
+        strike=100.0,
+        expiry=datetime(2024, 6, 21),
+        option_type="C"
     )
 
 def test_portfolio_initialization(portfolio):
@@ -50,7 +50,6 @@ def test_market_updates_updates_equity(portfolio: Portfolio, crypto_instrument: 
             quantity=100,
             fill_price=10.0,
             commission=0.0,
-            multiplier=1.0,
             order_id="12345"
         )
     )
@@ -84,8 +83,8 @@ def test_market_updates_updates_equity(portfolio: Portfolio, crypto_instrument: 
 
 
 def test_position_closure(portfolio, crypto_instrument):
-    portfolio.apply_fill(FillEvent(type=EventType.FILL, timestamp=datetime.now(), instrument=crypto_instrument, quantity=100, fill_price=10.0, commission=0.0, order_id="12345", multiplier=1.0))
-    portfolio.apply_fill(FillEvent(type=EventType.FILL, timestamp=datetime.now(), instrument=crypto_instrument, quantity=-100, fill_price=10.0, commission=0.0,  order_id="23453", multiplier=1.0))
+    portfolio.apply_fill(FillEvent(type=EventType.FILL, timestamp=datetime.now(), instrument=crypto_instrument, quantity=100, fill_price=10.0, commission=0.0, order_id="12345"))
+    portfolio.apply_fill(FillEvent(type=EventType.FILL, timestamp=datetime.now(), instrument=crypto_instrument, quantity=-100, fill_price=10.0, commission=0.0,  order_id="23453"))
 
     assert "XYZ" not in portfolio.positions
     assert portfolio.cash == 100_000.0
@@ -96,7 +95,7 @@ def test_position_closure(portfolio, crypto_instrument):
 def test_short_selling(portfolio, crypto_instrument):
     """Tests that negative quantities properly deduct from equity when prices rise."""
     # Short 10 shares at $100
-    portfolio.apply_fill(FillEvent(type=EventType.FILL, timestamp=datetime.now(), instrument=crypto_instrument, quantity=-10, fill_price=100.0, commission=0.0, multiplier=1, order_id="12345"))
+    portfolio.apply_fill(FillEvent(type=EventType.FILL, timestamp=datetime.now(), instrument=crypto_instrument, quantity=-10, fill_price=100.0, commission=0.0, order_id="12345"))
 
     assert portfolio.cash == 101_000.0
 
@@ -115,54 +114,60 @@ def test_short_selling(portfolio, crypto_instrument):
     assert portfolio.equity == 99_900.0
 
 
-def test_option_expiration(portfolio, option_instrument: Option):
-    """Option position expires at expiry date; intrinsic is paid to cash."""
+def test_option_expiration(portfolio):
     from datetime import datetime as dt
     expiry = dt(2024, 6, 21)
-    # Short 1 call, strike 100, underlying AAPL
+
+    instrument = Option(
+        symbol="AAPL240621C100",
+        underlying="AAPL",
+        asset_class=AssetClass.OPTION,
+        strike=100.0,
+        expiry=expiry,
+        option_type="C",
+        multiplier=100.0,
+    )
+
     portfolio.apply_fill(
         FillEvent(
             type=EventType.FILL,
             timestamp=dt(2024, 6, 1),
-            instrument=option_instrument,
+            instrument=instrument,
             quantity=-1.0,
             fill_price=5.0,
             commission=0.0,
-            multiplier=100.0,
-            order_id="123456"
-        ),
+            order_id="123456",
+        )
     )
-    # Set underlying price to 105 so call intrinsic = 5 * 100 = 500
     portfolio.update_prices(
         MarketEvent(
             type=EventType.MARKET,
             timestamp=dt(2024, 6, 20),
-            instrument=option_instrument,
-            open=104.0,
-            high=106.0,
-            low=104.0,
-            close=105.0,
-            volume=1000,
+            instrument=Instrument(symbol="AAPL", asset_class=AssetClass.EQUITY, multiplier=1.0),
+            open=105.0, high=105.0, low=105.0, close=105.0, volume=0,
+        )
+    )
+    portfolio.update_prices(
+        MarketEvent(
+            type=EventType.MARKET,
+            timestamp=dt(2024, 6, 20),
+            instrument=instrument,
+            open=104.0, high=106.0, low=104.0, close=105.0, volume=1000,
         )
     )
     assert "AAPL240621C100" in portfolio.positions
-    cash_before = portfolio.cash
-    # Event on expiry day with OPTION asset_class triggers expiration
+    cash_before = portfolio.cash  # 100_500.0 (sold call for 5 * 100)
     portfolio.update_prices(
         MarketEvent(
             type=EventType.MARKET,
             timestamp=dt(2024, 6, 21, 12, 0, 0),
-            instrument=option_instrument,
-            open=5.0,
-            high=5.0,
-            low=5.0,
-            close=5.0,
-            volume=0,
+            instrument=instrument,
+            open=5.0, high=5.0, low=5.0, close=5.0, volume=0,
         )
     )
     assert "AAPL240621C100" not in portfolio.positions
-    # Short call: we pay intrinsic to the holder. Intrinsic = (105 - 100) * 100 = 500. Cash decreases by 500.
-    assert portfolio.cash == cash_before - 500.0
+    # Short call assigned: pay (105 - 100) * 100 = 500 to holder
+    assert portfolio.cash == cash_before - 500.0  # 100_500 - 500 = 100_000
 
 
 def test_underlying_view_and_margin(portfolio):
@@ -185,7 +190,6 @@ def test_underlying_view_and_margin(portfolio):
             quantity=-1.0,
             fill_price=10.0,
             commission=0.0,
-            multiplier=100.0,
             order_id="123456"
         )
     )

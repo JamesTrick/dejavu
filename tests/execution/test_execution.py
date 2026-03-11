@@ -49,5 +49,4 @@ def test_commission_only(commission_model: PerContractCommission, instrument: In
     assert isinstance(fill_event, FillEvent)
     assert fill_event.fill_price == 20
     assert fill_event.commission == 0.5 * 10 # Cost per contract. Or should it be per order, regardless of quantity?
-    assert fill_event.multiplier == 1
     assert fill_event.instrument.symbol == "SPY"

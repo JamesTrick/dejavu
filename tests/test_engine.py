@@ -60,7 +60,6 @@ def make_fill(order, fill_price=100.0, timestamp=None):
         quantity=order.quantity,
         fill_price=fill_price,
         commission=1.0,
-        multiplier=order.instrument.multiplier,
     )
 
 
@@ -698,7 +697,7 @@ class TestOptionsOrders:
         engine.run()
 
         portfolio.apply_fill.assert_called_once_with(fill)
-        assert fill.multiplier == 100.0
+        assert fill.instrument.multiplier == 100.0
 
     def test_option_and_equity_orders_routed_correctly(self):
         equity = make_instrument("AAPL")

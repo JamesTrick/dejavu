@@ -109,7 +109,6 @@ class FillEvent(Event):
     quantity:   float
     fill_price: float
     commission: float
-    multiplier: float
     bid: float | None = None
     ask: float | None = None
 
@@ -119,7 +118,7 @@ class FillEvent(Event):
         if self.bid is None or self.ask is None:
             return None
         mid = (self.bid + self.ask) / 2
-        return abs(self.fill_price - mid) * abs(self.quantity) * self.multiplier
+        return abs(self.fill_price - mid) * abs(self.quantity) * self.instrument.multiplier
 
 @dataclass
 class OrderEvent(Event):
