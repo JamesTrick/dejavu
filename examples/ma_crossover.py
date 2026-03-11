@@ -6,6 +6,7 @@ import pandas as pd
 from data.generate_data import generate_equity_csv, generate_options_csv
 from dejavu.data.feed import CSVDataFeed
 from dejavu.engine import BacktestEngine
+from dejavu.execution.commission import AssetClassCommission, TieredPerShareCommission
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
 from dejavu.indicators.ma import SMA
 from dejavu.portfolio import Portfolio
@@ -26,7 +27,7 @@ class MACrossOver(Strategy):
     def on_market(self, event: MarketEvent):
         orders = []
 
-        if event.asset_class == AssetClass.EQUITY:
+        if event.instrument.asset_class == AssetClass.EQUITY:
             self.fast_ma.update(event.close)
             self.slow_ma.update(event.close)
 
@@ -37,15 +38,14 @@ class MACrossOver(Strategy):
 
         if self.fast_ma > self.slow_ma and not in_position:
             # Golden cross — go long
-            orders.append((
+            orders.append(
                 Order(
-                    symbol=self.underlying,
+                    instrument=event.instrument,
                     quantity=50,
                     order_type=OrderType.MARKET,
-                    asset_class=AssetClass.EQUITY,
                 ),
                 {"asset_class": AssetClass.EQUITY},
-            ))
+            )
             print(
                 f"  [BUY] {event.timestamp.date()} | "
                 f"fast={self.fast_ma.value:.2f} slow={self.slow_ma.value:.2f}"
@@ -53,15 +53,13 @@ class MACrossOver(Strategy):
 
         elif self.fast_ma.value < self.slow_ma.value and in_position:
             # Death cross — exit
-            orders.append((
+            orders.append(
                 Order(
-                    symbol=self.underlying,
+                    instrument=event.instrument,
                     quantity=-50,
                     order_type=OrderType.MARKET,
-                    asset_class=AssetClass.EQUITY,
                 ),
-                {"asset_class": AssetClass.EQUITY},
-            ))
+            )
             print(
                 f"  [SELL] {event.timestamp.date()} | "
                 f"fast={self.fast_ma.value:.2f} slow={self.slow_ma.value:.2f}"
@@ -97,7 +95,12 @@ def run_test():
     strategy  = MACrossOver(portfolio, underlying="AAPL")
     feed      = CSVDataFeed({"AAPL": "equity.csv"}, asset_classes={"AAPL": AssetClass.EQUITY})
     slippage  = VolumeWeightedSlippage(impact_factor=0.1)
-    executor  = SimulatedExecutionHandler(commission_per_contract=0.65, slippage=slippage)
+    commission_model = AssetClassCommission(models={AssetClass.EQUITY: TieredPerShareCommission(
+        rate=0.005,
+        minimum=1.00,
+        max_pct_notional=0.01,
+    )})
+    executor  = SimulatedExecutionHandler(commission=commission_model, slippage=slippage)
     engine    = BacktestEngine(feed, strategy, portfolio, executor)
 
     # ── Run ───────────────────────────────────────────────────────

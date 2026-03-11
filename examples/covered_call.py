@@ -6,8 +6,14 @@ import pandas as pd
 from data.generate_data import generate_equity_csv, generate_options_csv
 from dejavu.data.feed import CombinedDataFeed
 from dejavu.engine import BacktestEngine
+from dejavu.execution.commission import (
+    AssetClassCommission,
+    PerContractCommission,
+    TieredPerShareCommission,
+)
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
 from dejavu.portfolio import Portfolio
+from dejavu.schemas import AssetClass
 from dejavu.strategy.covered_call import CoveredCallStrategy
 
 
@@ -38,15 +44,24 @@ def run_test():
     strategy  = CoveredCallStrategy(portfolio, underlying="AAPL")
     feed      = CombinedDataFeed("equity.csv", "options.csv")
     slippage  = VolumeWeightedSlippage(impact_factor=0.1)
-    executor  = SimulatedExecutionHandler(commission_per_contract=0.65, slippage=slippage)
+    commission_model = AssetClassCommission(
+        models={
+            AssetClass.EQUITY: TieredPerShareCommission(
+                rate=0.005,
+                minimum=1.00,
+                max_pct_notional=0.01,
+            ),
+            AssetClass.OPTION: PerContractCommission(rate=0.65),
+        },
+        default=PerContractCommission(rate=0.65),
+    )
+    executor  = SimulatedExecutionHandler(commission=commission_model, slippage=slippage)
     engine    = BacktestEngine(feed, strategy, portfolio, executor)
 
     # ── Run ───────────────────────────────────────────────────────
     print("\n--- Activity Log ---")
     engine.run()
 
-    print(f"AAPL Multiplier: {portfolio.positions['AAPL'].multiplier}")
-    print(f"Portfolio Equity: ${portfolio.equity:.2f}")
     # ── Results ───────────────────────────────────────────────────
     history = pd.DataFrame(portfolio.history).drop_duplicates("timestamp").set_index("timestamp")
     returns = history["equity"].pct_change().dropna()
@@ -55,17 +70,17 @@ def run_test():
         np.sqrt(252) * returns.mean() / returns.std()
         if returns.std() > 0 else 0
     )
-    equity       = history["equity"]
-    peak         = equity.cummax()
+
+    equity = history["equity"]
+    peak = equity.cummax()
     max_drawdown = ((equity - peak) / peak).min()
-    years        = (equity.index[-1] - equity.index[0]).days / 365.25
-    cagr         = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
+
+    years = max((equity.index[-1] - equity.index[0]).total_seconds() / (365.25 * 86400), 0.001)
+    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
     trades_df = pd.DataFrame(portfolio.trade_journal)
     print(trades_df.to_string(index=False))
-
-    print(trades_df)
 
     print("\n--- Performance Summary ---")
     print(f"  Initial Capital : ${portfolio.initial_capital:>10,.2f}")
