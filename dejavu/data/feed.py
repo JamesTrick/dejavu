@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import pandas as pd
 
-from ..schemas import (
+from dejavu.schemas import (
     AssetClass,
     EventType,
     Instrument,
@@ -45,9 +45,17 @@ class LiveDataFeed(DataFeed, ABC):
 
 
 class CSVDataFeed(DataFeed):
-    """CSV-based feed for one or more symbols. Supports EQUITY and CRYPTO"""
+    """More often than note, data for back testing is stored within CSV files. This data feed provides a performant way of loading them
+    and transforming them into MarketEvent's for your trading strategies. Supports EQUITY and CRYPTO"""
 
     def __init__(self, paths: dict[str, str], asset_classes: dict[str, AssetClass]):
+        """_summary_
+
+        Args:
+            paths (dict["symbol", "path"]): A mapping of symbol to its corresponding CSV file path.
+            The CSVs should have columns: timestamp, open, high, low, close, volume.
+            asset_classes (dict[str, AssetClass]): A mapping of symbol to its corresponding asset class.
+        """
         self.paths = paths  # symbol -> file path
         self.asset_classes = asset_classes
 
@@ -66,7 +74,7 @@ class CSVDataFeed(DataFeed):
 
             instruments[sym] = Instrument(
                 symbol=sym,
-                asset_class=AssetClass.EQUITY,
+                asset_class=self.asset_classes.get(sym, AssetClass.EQUITY),
                 multiplier=1.0,
             )
 
