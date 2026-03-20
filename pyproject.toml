@@ -32,6 +32,9 @@ include = ["dejavu*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "integration: test that calls another service",
+]
 
 [tool.ruff]
 # Target version for syntax highlighting/checks
