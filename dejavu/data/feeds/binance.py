@@ -1,10 +1,29 @@
 import asyncio
+from enum import StrEnum
 
 import httpx
 import pandas as pd
 
 from dejavu.data.feed import RESTDataFeed
 from dejavu.schemas import AssetClass, EventType, Instrument, MarketEvent
+
+
+class BinanceSupportedIntervals(StrEnum):
+    """Binance supports a number of intervals, these are documented in their API docs. This enum is provided for convenience,
+    but you can also just pass the string directly to the feed.
+    """
+    ONE_MINUTE = "1m"
+    THREE_MINUTES = "3m"
+    FIVE_MINUTES = "5m"
+    FIFTEEN_MINUTES = "15m"
+    THIRTY_MINUTES = "30m"
+    ONE_HOUR = "1h"
+    TWO_HOURS = "2h"
+    FOUR_HOURS = "4h"
+    SIX_HOURS = "6h"
+    EIGHT_HOURS = "8h"
+    TWELVE_HOURS = "12h"
+    ONE_DAY = "1d"
 
 
 class BinanceRESTFeed(RESTDataFeed):
@@ -18,13 +37,17 @@ class BinanceRESTFeed(RESTDataFeed):
     binance_feed = BinanceRESTFeed(symbols=['BTCUSDT'], interval='1m')
     binance_feed.base_url = 'https://api4.binance.com'
     ```
+
+    Errors you may encounter when using this feed:
+        - Users may experience a number of HTTP errors when fetching data from Binance. One of the most perplexing ones is HTTP Error 451. Which typically
+         occurs if you're calling this function from a region where Binance services are restricted.
     """
-    def __init__(self, symbols: list[str], interval: str, total_limit: int = 2000):
+    def __init__(self, symbols: list[str], interval: BinanceSupportedIntervals, total_limit: int = 2000):
         """_summary_
 
         Args:
             symbols (list[str]): List of Symbols to fetch, e.g. ["BTCUSDT", "ETHUSDT"]
-            interval (str): Candle interval, e.g. "1m", "5m", "1h", etc. See Binance docs for supported intervals.
+            interval (BinanceSupportedIntervals): Candle interval, e.g. "1m", "5m", "1h", etc. See Binance docs for supported intervals.
             total_limit (int, optional): Total number of candles to fetch per symbol. Defaults to 2000.
         """
         self.symbols = symbols

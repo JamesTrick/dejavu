@@ -24,7 +24,17 @@ class SlippageModel(ABC):
 
 
 class VolumeWeightedSlippage(SlippageModel):
+    """Volume-weighted slippage model.
+
+    Args:
+        SlippageModel (_type_): _description_
+    """
     def __init__(self, impact_factor: float = 0.1):
+        """_summary_
+
+        Args:
+            impact_factor (float, optional): The impact factor for the slippage calculation. Defaults to 0.1.
+        """
         self.impact_factor = impact_factor
 
     def apply(self, order: Order, price: float, market: MarketEvent) -> float:
@@ -35,8 +45,9 @@ class VolumeWeightedSlippage(SlippageModel):
 
 
 class NoSlippage(SlippageModel):
-    """Simple slippage that assumes no slippage occurs."""
+    """Simple slippage that assumes no slippage occurs. In other words, the market price is the fill price."""
     def apply(self, order: Order, price: float, market: MarketEvent) -> float:
+
         return price
 
 
