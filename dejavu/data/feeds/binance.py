@@ -42,10 +42,12 @@ class BinanceRESTFeed(RESTDataFeed):
         - Users may experience a number of HTTP errors when fetching data from Binance. One of the most perplexing ones is HTTP Error 451. Which typically
          occurs if you're calling this function from a region where Binance services are restricted.
     """
+    def __init__(self, symbols: list[str], interval: BinanceSupportedIntervals, total_limit: int = 2000):
         """_summary_
 
         Args:
             symbols (list[str]): List of Symbols to fetch, e.g. ["BTCUSDT", "ETHUSDT"]
+            interval (BinanceSupportedIntervals): Candle interval, e.g. "1m", "5m", "1h", etc. See Binance docs for supported intervals.
             total_limit (int, optional): Total number of candles to fetch per symbol. Defaults to 2000.
         """
         self.symbols = symbols
