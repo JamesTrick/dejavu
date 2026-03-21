@@ -3,13 +3,19 @@ icon: lucide/rocket
 ---
 
 # Dejavu
+Dejavu is a high-performance Python backtesting and live trading framework.
+It's fully typed, composable, and extensible.
 
-Dejavu is a high-performance python based backtrading system. It's fully-typed, composable and extesnsible. 
+Dejavu currently processes over 3.5 million bars/ticks per second, making it
+suitable for high-frequency and large-scale backtesting workloads.
 
-It delivers high performance, currently iterating over 3.5 million bars/ticks per second.
+Taking inspiration from the typing philosophy of Pydantic and PydanticAI,
+Dejavu is a modern, typed alternative to Backtrader — designed for IDE
+completion, composability, and extensibility across a wide range of use cases.
 
 !!! warning
-    This package is rapidly under development and is likely to change. At this stage, use with caution.
+    This package is under active development and the API is subject to change.
+    Use with caution in production environments.
 
 ## Features
 

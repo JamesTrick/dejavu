@@ -4,3 +4,7 @@ as the package becomes more mature.
 ::: dejavu.data.feeds.binance.BinanceRESTFeed
     options:
         show_root_heading: true
+
+::: dejavu.data.feeds.alpha_vantage.AlphaVantageRESTFeed
+    options:
+        show_root_heading: true

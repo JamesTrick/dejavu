@@ -16,6 +16,7 @@ class AssetClass(Enum):
     FUTURE = auto()
     FX = auto()
     CRYPTO = auto()
+    COMMODITY = auto()
 
 @dataclass(frozen=True, kw_only=True)
 class Instrument:
@@ -37,7 +38,7 @@ class Event:
     type: EventType
     timestamp: datetime
 
-@dataclass
+@dataclass(slots=True)
 class MarketEvent(Event):
     """Generic market event, representing a new price update for an asset. It supports OHLCV data and be used for both
     equities and options (with additional fields in OptionMarketEvent)."""
@@ -46,7 +47,7 @@ class MarketEvent(Event):
     high: float
     low: float
     close: float
-    volume: float
+    volume: float | None = None
     bid: float | None = None
     ask: float | None = None
 

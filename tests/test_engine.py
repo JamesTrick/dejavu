@@ -96,7 +96,7 @@ def make_engine(
     executor = MagicMock()
     executor_fills = executor_fills or {}
 
-    def execute_side_effect(order, market_event):
+    def execute_side_effect(order, market_event, portfolio):
         return executor_fills.get(order.instrument.symbol)
 
     executor.execute.side_effect = execute_side_effect
@@ -382,8 +382,8 @@ class TestMultiLegOrders:
         fill_b = make_fill(leg_b, timestamp=t2)
 
         executor = MagicMock()
-        executor.execute.side_effect = lambda o, e: (
-            fill_a if o.instrument.symbol == "AAPL" else fill_b
+        executor.execute.side_effect = lambda order, event, portfolio: (
+            fill_a if order.instrument.symbol == "AAPL" else fill_b
         )
 
         feed = MagicMock()
@@ -418,8 +418,8 @@ class TestMultiLegOrders:
 
         executor = MagicMock()
         # Only AAPL fills; MSFT never gets an event
-        executor.execute.side_effect = lambda o, e: (
-            fill_a if o.instrument.symbol == "AAPL" else None
+        executor.execute.side_effect = lambda order, event, portfolio: (
+            fill_a if order.instrument.symbol == "AAPL" else None
         )
 
         feed = MagicMock()
@@ -541,8 +541,8 @@ class TestPendingOrders:
         fill_b = make_fill(order_b)
 
         executor = MagicMock()
-        executor.execute.side_effect = lambda o, e: (
-            fill_a if o.instrument.symbol == "AAPL" else fill_b
+        executor.execute.side_effect = lambda order, event, portfolio: (
+            fill_a if order.instrument.symbol == "AAPL" else fill_b
         )
 
         feed = MagicMock()
@@ -716,8 +716,8 @@ class TestOptionsOrders:
         op_fill = make_fill(op_order, timestamp=t2)
 
         executor = MagicMock()
-        executor.execute.side_effect = lambda o, e: (
-            eq_fill if o.instrument.symbol == "AAPL" else op_fill
+        executor.execute.side_effect = lambda order, event, portfolio: (
+            eq_fill if order.instrument.symbol == "AAPL" else op_fill
         )
 
         feed = MagicMock()

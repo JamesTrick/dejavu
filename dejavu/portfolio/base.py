@@ -3,7 +3,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..schemas import AssetClass, FillEvent, MarketEvent, Option, Position
+from dejavu.schemas import AssetClass, FillEvent, MarketEvent, Option, Position
 
 
 class Portfolio:
@@ -105,6 +105,7 @@ class Portfolio:
 
         for sym, pos in expired:
             inst = pos.instrument  # We know this is an Option now
+            assert isinstance(inst, Option)
             del self._positions[sym]
 
             underlying_price = self._last_prices.get(inst.underlying, 0.0)

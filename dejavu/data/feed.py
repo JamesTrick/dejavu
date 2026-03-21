@@ -1,7 +1,9 @@
+import asyncio
+import csv
+import heapq
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Iterator
-
-import pandas as pd
+from datetime import datetime
 
 from dejavu.schemas import (
     AssetClass,
@@ -12,6 +14,16 @@ from dejavu.schemas import (
 )
 
 
+def _parse_float(val: str) -> float | None:
+    if not val or val.strip() == "":
+        return None
+    return float(val)
+
+
+def _parse_timestamp(val: str) -> datetime:
+    return datetime.fromisoformat(val)
+
+
 class DataFeed(ABC):
     """Event-based feed: stream() yields market events in time order. No symbols/start/end — feed owns its source."""
 
@@ -20,21 +32,23 @@ class DataFeed(ABC):
         """All feeds must implement a streaming mechanism."""
         pass
 
-    def supports_asset_class(self, asset_class: AssetClass) -> bool:
+    def supports_asset_class(self, asset_class: AssetClass) -> bool:  # noqa: ARG002
         """Override if the feed only supports certain asset classes. Default: all supported."""
         return True
 
-class RESTDataFeed(DataFeed, ABC):
 
+class RESTDataFeed(DataFeed, ABC):
+    """Base class for REST data feeds. We use async to handle multiple symbols from the one feed.
+    """
     @abstractmethod
-    def stream(self) -> Iterator[MarketEvent]:
+    def stream(self) -> AsyncIterator[MarketEvent]:
         ...
 
 
 class LiveDataFeed(DataFeed, ABC):
 
     @abstractmethod
-    async def stream(self) -> AsyncIterator[MarketEvent]:
+    def stream(self) -> AsyncIterator[MarketEvent]:
         ...
 
     async def connect(self) -> None:
@@ -45,107 +59,104 @@ class LiveDataFeed(DataFeed, ABC):
 
 
 class CSVDataFeed(DataFeed):
-    """More often than note, data for back testing is stored within CSV files. This data feed provides a performant way of loading them
-    and transforming them into MarketEvent's for your trading strategies. Supports EQUITY and CRYPTO"""
-
-    def __init__(self, paths: dict[str, str], asset_classes: dict[str, AssetClass]):
-        """_summary_
-
-        Args:
-            paths (dict["symbol", "path"]): A mapping of symbol to its corresponding CSV file path.
-            The CSVs should have columns: timestamp, open, high, low, close, volume.
-            asset_classes (dict[str, AssetClass]): A mapping of symbol to its corresponding asset class.
-        """
-        self.paths = paths  # symbol -> file path
-        self.asset_classes = asset_classes
+    def __init__(self, path: str, asset_class: AssetClass = AssetClass.EQUITY):
+        self.path = path
+        self.asset_class = asset_class
 
     def stream(self) -> Iterator[MarketEvent]:
-        frames = []
-        instruments = {}
-        for symbol, path in self.paths.items():
-            df = pd.read_csv(path, parse_dates=["timestamp"])
-            df["symbol"] = symbol
-            frames.append(df)
+        instruments: dict[str, Instrument] = {}
+        ts_cache: dict[str, datetime] = {}
 
-        combined = pd.concat(frames).sort_values("timestamp")
+        with open(self.path, newline="") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            idx = {name: i for i, name in enumerate(header)}
 
-        for row in combined.itertuples(index=False):
-            sym = row.symbol
+            for row in reader:
+                raw_ts = row[idx["timestamp"]]
+                if raw_ts not in ts_cache:
+                    ts_cache[raw_ts] = datetime.fromisoformat(raw_ts)
 
-            instruments[sym] = Instrument(
+                sym = row[idx["symbol"]]
+                if sym not in instruments:
+                    instruments[sym] = self._build_instrument_from_row(row, idx, sym)
+
+                yield MarketEvent(
+                    type=EventType.MARKET,
+                    timestamp=ts_cache[raw_ts],
+                    instrument=instruments[sym],
+                    open=float(row[idx["open"]]),
+                    high=float(row[idx["high"]]),
+                    low=float(row[idx["low"]]),
+                    close=float(row[idx["close"]]),
+                    volume=float(row[idx["volume"]]),
+                    iv=_parse_float(row[idx["iv"]] if "iv" in idx else ""),
+                    delta=_parse_float(row[idx["delta"]] if "delta" in idx else ""),
+                    gamma=_parse_float(row[idx["gamma"]] if "gamma" in idx else ""),
+                )
+
+    def _build_instrument_from_row(
+            self, row: list[str], idx: dict[str, int], sym: str
+    ) -> Instrument:
+        if self.asset_class == AssetClass.OPTION:
+            return Option(
                 symbol=sym,
-                asset_class=self.asset_classes.get(sym, AssetClass.EQUITY),
-                multiplier=1.0,
+                asset_class=AssetClass.OPTION,
+                underlying=row[idx["underlying"]],
+                strike=float(row[idx["strike"]]),
+                expiry=datetime.fromisoformat(row[idx["expiry"]]),
+                option_type=row[idx["option_type"]],
+                multiplier=100.0,
             )
+        return Instrument(
+            symbol=sym,
+            asset_class=self.asset_class,
+            multiplier=1.0,
+        )
 
-            yield MarketEvent(
-                type=EventType.MARKET,
-                timestamp=row.timestamp,
-                instrument=instruments[sym],
-                open=float(row.open),
-                high=float(row.high),
-                low=float(row.low),
-                close=float(row.close),
-                volume=float(row.volume)
-            )
+async def _collect_async(ait: AsyncIterator[MarketEvent]) -> list[MarketEvent]:
+    return [event async for event in ait]
 
 
 class CombinedDataFeed(DataFeed):
-    """Combines equity and options data from separate CSVs, yielding MarketEvent or OptionMarketEvent in timestamp order."""
+    """This merges data across any number of DataFeeds. For example, you may have a AlphaVantage Data feed and a CSV
+    data feed.
 
-    def __init__(self, equity_path: str, options_path: str | None = None):
-        eq = pd.read_csv(equity_path, parse_dates=["timestamp"])
-        eq["asset_class_order"] = 0   # equity streams FIRST each day
-        frames = [eq]
+    Example:
 
-        if options_path:
-            op = pd.read_csv(
-                options_path, parse_dates=["timestamp", "expiry"]
-            )
-            op["asset_class_order"] = 1   # options stream SECOND
-            frames.append(op)
+    ```python
+    feed = CombinedDataFeed(
+        CSVDataFeed("equity.csv", "options.csv"),
+        AlphaVantageRestFeed(api_key="...", symbols=["AAPL"], ...),
+    )
+    ```
+    """
 
-        self.data = (
-            pd.concat(frames, ignore_index=True)
-            .sort_values(["timestamp", "asset_class_order"])
-            .reset_index(drop=True)
-        )
+    def __init__(self, *feeds: DataFeed):
+        self.feeds = feeds
 
     def stream(self) -> Iterator[MarketEvent]:
-        instruments = {}
+        def iter_feed(feed: DataFeed) -> Iterator[MarketEvent]:
+            result = feed.stream()
+            if isinstance(result, AsyncIterator):
+                yield from asyncio.run(_collect_async(result))
+            else:
+                yield from result
 
-        for row in self.data.itertuples(index=False):
-            sym = row.symbol
+        iterators = [iter_feed(f) for f in self.feeds]
+        heap = []
 
-            if sym not in instruments:
-                is_option = row.asset_class_order == 1
-                if is_option:
-                    instruments[sym] = Option(
-                        symbol=sym,
-                        asset_class=AssetClass.OPTION,
-                        underlying=row.underlying,
-                        strike=float(row.strike),
-                        expiry=row.expiry,
-                        option_type=row.option_type,
-                        multiplier=100.0,
-                    )
-                else:
-                    instruments[sym] = Instrument(
-                        symbol=sym,
-                        asset_class=AssetClass.EQUITY,
-                        multiplier=1.0,
-                    )
+        def push(it, idx):
+            try:
+                event = next(it)
+                heapq.heappush(heap, (event.timestamp, idx, event))
+            except StopIteration:
+                pass
 
-            yield MarketEvent(
-                type=EventType.MARKET,
-                timestamp=row.timestamp,
-                instrument=instruments[sym],
-                open=float(row.open),
-                high=float(row.high),
-                low=float(row.low),
-                close=float(row.close),
-                volume=float(row.volume),
-                iv=float(row.iv) if row.iv else None,
-                delta=float(row.delta) if row.delta else None,
-                gamma=float(row.gamma) if row.gamma else None,
-            )
+        for idx, it in enumerate(iterators):
+            push(it, idx)
+
+        while heap:
+            ts, idx, event = heapq.heappop(heap)
+            yield event
+            push(iterators[idx], idx)

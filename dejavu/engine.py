@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from dejavu.data.feed import DataFeed
-from dejavu.execution.orders import SimulatedExecutionHandler
+from dejavu.execution.orders import ExecutionHandler
 from dejavu.portfolio import Portfolio
 from dejavu.portfolio.rebalancing.base import Rebalancer
 from dejavu.schemas import FillTiming, MultiLegOrder, OrderType
@@ -17,7 +17,7 @@ class BacktestEngine:
         feed:      DataFeed,
         strategy:  Strategy,
         portfolio: Portfolio,
-        executor:  SimulatedExecutionHandler,
+        executor:  ExecutionHandler,
         rebalancer: Rebalancer | None = None,
         fill_timing: FillTiming = FillTiming.NEXT_BAR
     ):
@@ -63,7 +63,7 @@ class BacktestEngine:
             if pending:
                 still_pending = []
                 for order, originating_event in pending:
-                    fill = executor.execute(order, event)
+                    fill = executor.execute(order, event, portfolio)
                     if fill:
                         apply_fill(fill)
                     else:
@@ -95,7 +95,7 @@ class BacktestEngine:
                             and o.order_type == OrderType.MARKET
                             and o.instrument.symbol == sym
                     ):
-                        fill = executor.execute(o, event)
+                        fill = executor.execute(o, event, portfolio)
                         if fill:
                             apply_fill(fill)
                         else:
