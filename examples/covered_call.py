@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from data.generate_data import generate_equity_csv, generate_options_csv
-from dejavu.data.feed import CombinedDataFeed
+from dejavu.data.feed import CombinedDataFeed, CSVDataFeed
 from dejavu.engine import BacktestEngine
 from dejavu.execution.commission import (
     AssetClassCommission,
@@ -42,7 +42,9 @@ def run_test():
     # ── Wire up components ────────────────────────────────────────
     portfolio = Portfolio(initial_capital=25_000)
     strategy  = CoveredCallStrategy(portfolio, underlying="AAPL")
-    feed      = CombinedDataFeed("equity.csv", "options.csv")
+    equity_feed = CSVDataFeed("equity.csv", asset_class=AssetClass.EQUITY)
+    options_feed = CSVDataFeed("options.csv", asset_class=AssetClass.OPTION)
+    feed = CombinedDataFeed(equity_feed, options_feed)
     slippage  = VolumeWeightedSlippage(impact_factor=0.1)
     commission_model = AssetClassCommission(
         models={

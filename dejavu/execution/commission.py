@@ -6,7 +6,7 @@ from dejavu.schemas import AssetClass, Order
 class CommissionModel(ABC):
     @abstractmethod
     def calculate(
-        self, order: Order, fill_price: float, multiplier: float
+        self, order: Order, fill_price: float, multiplier: float  # noqa: ARG002
     ) -> float: ...
 
 

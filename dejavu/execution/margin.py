@@ -20,7 +20,7 @@ class RealisticRegTModel:
         total_margin = 0.0
         view = portfolio.underlying_view()
 
-        for underlying_sym, data in view.items():
+        for _underlying_sym, data in view.items():
             current_u_price = data["price"]
             equity_pos = data["equity_position"]
             opt_symbols = data["option_symbols"]

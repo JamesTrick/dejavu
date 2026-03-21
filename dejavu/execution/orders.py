@@ -1,6 +1,10 @@
+import logging
 from abc import ABC, abstractmethod
 
 from dejavu.execution.commission import CommissionModel
+from dejavu.execution.margin import RealisticRegTModel
+from dejavu.execution.validators import MarginValidator, OrderValidator
+from dejavu.portfolio import Portfolio
 from dejavu.schemas import (
     AssetClass,
     EventType,
@@ -10,10 +14,32 @@ from dejavu.schemas import (
     OrderType,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ExecutionHandler(ABC):
+
+    def _get_fill_price(
+            self, order: Order, market: MarketEvent
+    ) -> float | None:
+        """Shared price discovery logic for all handlers."""
+        match order.order_type:
+            case OrderType.MARKET:
+                return float(market.close)
+            case OrderType.LIMIT:
+                if order.limit_price is None:
+                    logger.warning(f"Limit order missing price for {order.instrument.symbol}")
+                    return None
+                if order.quantity > 0 and market.low <= order.limit_price:
+                    return float(order.limit_price)
+                elif order.quantity < 0 and market.high >= order.limit_price:
+                    return float(order.limit_price)
+                return None  # condition not met
+            case _:
+                raise ValueError(f"Unsupported order type {order.order_type}")
+
     @abstractmethod
-    def execute(self, order: Order, market: MarketEvent) -> FillEvent | None:
+    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
         ...
 
 
@@ -46,8 +72,7 @@ class VolumeWeightedSlippage(SlippageModel):
 
 class NoSlippage(SlippageModel):
     """Simple slippage that assumes no slippage occurs. In other words, the market price is the fill price."""
-    def apply(self, order: Order, price: float, market: MarketEvent) -> float:
-
+    def apply(self, order: Order, price: float, market: MarketEvent) -> float:  # noqa: ARG002
         return price
 
 
@@ -72,23 +97,15 @@ class AssetClassSlippage(SlippageModel):
 
 
 class CommissionOnlyHandler(ExecutionHandler):
-    def __init__(self, commission: CommissionModel):
+    def __init__(self, commission: CommissionModel, validators: list[OrderValidator] | None = None):
         self.commission = commission
+        self.validators = validators or []
 
-    def execute(self, order: Order, market: MarketEvent) -> FillEvent | None:
-        if order.order_type == OrderType.MARKET:
-            fill_price = market.close
-        elif order.order_type == OrderType.LIMIT:
-            if order.quantity > 0 and market.low <= order.limit_price:
-                fill_price = order.limit_price
-            elif order.quantity < 0 and market.high >= order.limit_price:
-                fill_price = order.limit_price
-            else:
-                return None   # not filled
-        else:
+    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
+        fill_price = self._get_fill_price(order, market)
+        if fill_price is None:
             return None
-        multiplier = order.instrument.multiplier
-        commission = self.commission.calculate(order, fill_price, multiplier)
+        commission = self.commission.calculate(order, fill_price, order.instrument.multiplier)
 
         return FillEvent(
             type=EventType.FILL,
@@ -106,37 +123,28 @@ class SimulatedExecutionHandler(ExecutionHandler):
             self,
             slippage: SlippageModel,
             commission: CommissionModel,
+            validators: list[OrderValidator] | None = None
     ):
         self.slippage = slippage
         self.commission = commission
+        self.validators = validators or []
 
-    def execute(self, order: Order, market: MarketEvent) -> FillEvent | None:
+    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
         try:
-            if order.instrument.symbol != market.instrument.symbol:
+            fill_price = self._get_fill_price(order, market)
+            if fill_price is None:
                 return None
+            fill_price = self.slippage.apply(order, fill_price, market)
 
-            if order.order_type == OrderType.MARKET:
-                # Ensure market.close is a clean float (Pandas can sometimes sneak in numpy floats)
-                clean_price = float(market.close)
-                fill_price = self.slippage.apply(order, clean_price, market)
-
-            elif order.order_type == OrderType.LIMIT:
-                if order.limit_price is None:
-                    print(f"ERROR: Limit order missing price for {order.instrument.symbol}")
+            for validator in self.validators:
+                valid, reason = validator.validate(order, fill_price, portfolio)
+                if not valid:
+                    logger.warning(f"Order rejected: {reason}")
                     return None
 
-                if order.quantity > 0 and market.low <= order.limit_price:
-                    fill_price = order.limit_price
-                elif order.quantity < 0 and market.high >= order.limit_price:
-                    fill_price = order.limit_price
-                else:
-                    return None  # Limit condition not met yet
-            else:
-                print(f"ERROR: Unknown order type {order.order_type}")
-                return None
-
-            multiplier = order.instrument.multiplier
-            commission = self.commission.calculate(order, fill_price, multiplier)
+            commission = self.commission.calculate(
+                order, fill_price, order.instrument.multiplier
+            )
 
             return FillEvent(
                 type=EventType.FILL,
@@ -153,4 +161,48 @@ class SimulatedExecutionHandler(ExecutionHandler):
             print(f"Error: {e}")
             import traceback
             traceback.print_exc()
+            return None
+
+class MarginAwareExecutionHandler(ExecutionHandler):
+    def __init__(
+        self,
+        slippage: SlippageModel,
+        commission: CommissionModel,
+        margin_model: RealisticRegTModel,
+        validators: list[OrderValidator] | None = None,
+    ):
+        self.slippage = slippage
+        self.commission = commission
+        self.margin_model = margin_model
+        # Always include margin validator, plus any extras
+        self.validators = [MarginValidator(margin_model)] + (validators or [])
+
+    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
+        try:
+            fill_price = self._get_fill_price(order, market)
+            if fill_price is None:
+                return None
+
+            fill_price = self.slippage.apply(order, fill_price, market)
+
+            for validator in self.validators:
+                valid, reason = validator.validate(order, fill_price, portfolio)
+                if not valid:
+                    logger.warning(f"Order rejected: {reason}")
+                    return None
+
+            commission = self.commission.calculate(
+                order, fill_price, order.instrument.multiplier
+            )
+            return FillEvent(
+                type=EventType.FILL,
+                timestamp=market.timestamp,
+                order_id=order.order_id,
+                instrument=order.instrument,
+                quantity=float(order.quantity),
+                fill_price=float(fill_price),
+                commission=float(commission),
+            )
+        except Exception as e:
+            logger.error(f"[EXECUTOR CRASH] {order.instrument.symbol}: {e}", exc_info=True)
             return None

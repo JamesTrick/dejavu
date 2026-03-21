@@ -1,3 +1,3 @@
-from .base import PositionSizer
-from .fixed import FixedDollar, FixedUnits
-from .risk import PercentRisk
+from dejavu.strategy.sizers.base import PositionSizer
+from dejavu.strategy.sizers.fixed import FixedDollar, FixedUnits
+from dejavu.strategy.sizers.risk import PercentRisk
