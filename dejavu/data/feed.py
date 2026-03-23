@@ -11,6 +11,7 @@ from dejavu.schemas import (
     Instrument,
     MarketEvent,
     Option,
+    OptionMarketEvent,
 )
 
 
@@ -28,7 +29,7 @@ class DataFeed(ABC):
     """Event-based feed: stream() yields market events in time order. No symbols/start/end — feed owns its source."""
 
     @abstractmethod
-    def stream(self) -> Iterator[MarketEvent] | AsyncIterator[MarketEvent]:
+    def stream(self) -> Iterator[MarketEvent]:
         """All feeds must implement a streaming mechanism."""
         pass
 
@@ -38,18 +39,34 @@ class DataFeed(ABC):
 
 
 class RESTDataFeed(DataFeed, ABC):
-    """Base class for REST data feeds. We use async to handle multiple symbols from the one feed.
-    """
+    """Base class for REST data feeds. We use async to handle multiple symbols from the one feed."""
+
     @abstractmethod
-    def stream(self) -> AsyncIterator[MarketEvent]:
-        ...
+    def stream_async(self) -> AsyncIterator[MarketEvent]: ...
+
+    def stream(self) -> Iterator[MarketEvent]:
+        """Bridges async → sync so the backtest engine works out of the box."""
+        loop = asyncio.new_event_loop()
+        ait = self.stream_async()
+        try:
+            while True:
+                try:
+                    yield loop.run_until_complete(ait.__anext__())
+                except StopAsyncIteration:
+                    break
+        finally:
+            loop.close()
 
 
 class LiveDataFeed(DataFeed, ABC):
-
     @abstractmethod
-    def stream(self) -> AsyncIterator[MarketEvent]:
-        ...
+    def stream_async(self) -> AsyncIterator[MarketEvent]: ...
+
+    def stream(self) -> Iterator[MarketEvent]:
+        raise NotImplementedError(
+            "LiveDataFeed cannot be used with the synchronous BacktestEngine. "
+            "Use LiveEngine with stream_async() instead."
+        )
 
     async def connect(self) -> None:
         pass
@@ -71,6 +88,7 @@ class CSVDataFeed(DataFeed):
             reader = csv.reader(f)
             header = next(reader)
             idx = {name: i for i, name in enumerate(header)}
+            has_greeks = {"iv", "delta", "gamma"}.issubset(idx)
 
             for row in reader:
                 raw_ts = row[idx["timestamp"]]
@@ -81,22 +99,31 @@ class CSVDataFeed(DataFeed):
                 if sym not in instruments:
                     instruments[sym] = self._build_instrument_from_row(row, idx, sym)
 
-                yield MarketEvent(
-                    type=EventType.MARKET,
-                    timestamp=ts_cache[raw_ts],
-                    instrument=instruments[sym],
-                    open=float(row[idx["open"]]),
-                    high=float(row[idx["high"]]),
-                    low=float(row[idx["low"]]),
-                    close=float(row[idx["close"]]),
-                    volume=float(row[idx["volume"]]),
-                    iv=_parse_float(row[idx["iv"]] if "iv" in idx else ""),
-                    delta=_parse_float(row[idx["delta"]] if "delta" in idx else ""),
-                    gamma=_parse_float(row[idx["gamma"]] if "gamma" in idx else ""),
-                )
+                common = {
+                    "type": EventType.MARKET,
+                    "timestamp": ts_cache[raw_ts],
+                    "instrument": instruments[sym],
+                    "open": float(row[idx["open"]]),
+                    "high": float(row[idx["high"]]),
+                    "low": float(row[idx["low"]]),
+                    "close": float(row[idx["close"]]),
+                    "volume": float(row[idx["volume"]]),
+                }
+
+                if has_greeks:
+                    yield OptionMarketEvent(
+                        **common,
+                        iv=_parse_float(row[idx["iv"]]),
+                        delta=_parse_float(row[idx["delta"]]),
+                        gamma=_parse_float(row[idx["gamma"]]),
+                        theta=_parse_float(row[idx["theta"]] if "theta" in idx else ""),
+                        vega=_parse_float(row[idx["vega"]] if "vega" in idx else ""),
+                    )
+                else:
+                    yield MarketEvent(**common)
 
     def _build_instrument_from_row(
-            self, row: list[str], idx: dict[str, int], sym: str
+        self, row: list[str], idx: dict[str, int], sym: str
     ) -> Instrument:
         if self.asset_class == AssetClass.OPTION:
             return Option(
@@ -113,6 +140,7 @@ class CSVDataFeed(DataFeed):
             asset_class=self.asset_class,
             multiplier=1.0,
         )
+
 
 async def _collect_async(ait: AsyncIterator[MarketEvent]) -> list[MarketEvent]:
     return [event async for event in ait]
@@ -137,16 +165,15 @@ class CombinedDataFeed(DataFeed):
 
     def stream(self) -> Iterator[MarketEvent]:
         def iter_feed(feed: DataFeed) -> Iterator[MarketEvent]:
-            result = feed.stream()
-            if isinstance(result, AsyncIterator):
-                yield from asyncio.run(_collect_async(result))
+            if hasattr(feed, "stream_async"):
+                yield from asyncio.run(_collect_async(feed.stream_async()))
             else:
-                yield from result
+                yield from feed.stream()
 
         iterators = [iter_feed(f) for f in self.feeds]
-        heap = []
+        heap: list[tuple] = []
 
-        def push(it, idx):
+        def push(it: Iterator[MarketEvent], idx: int) -> None:
             try:
                 event = next(it)
                 heapq.heappush(heap, (event.timestamp, idx, event))
@@ -157,6 +184,6 @@ class CombinedDataFeed(DataFeed):
             push(it, idx)
 
         while heap:
-            ts, idx, event = heapq.heappop(heap)
+            _, idx, event = heapq.heappop(heap)
             yield event
             push(iterators[idx], idx)

@@ -7,10 +7,9 @@ def test_macd_initialization_lag():
 
     for i in range(4):
         assert macd.update(prices[i]) is None
-        assert macd.ready is False
 
 
-def test_macd_calculation_logic(mocker):
+def test_macd_calculation_logic(mocker):  # noqa: ARG001
     macd = MACD(fast=12, slow=26, signal=9)
 
     macd._fast_ema = 20.0

@@ -13,13 +13,13 @@ from dejavu.schemas import AssetClass, EventType
 
 
 def make_feed(**kwargs) -> AlphaVantageRESTFeed:
-    defaults = dict(
-        api_key="TEST_KEY",
-        symbols=["IBM"],
-        asset_class=AssetClass.EQUITY,
-        interval=AlphaVantageIntradayInterval.FIVE_MINUTES,
-        total_limit=3,
-    )
+    defaults = {
+        "api_key": "TEST_KEY",
+        "symbols": ["IBM"],
+        "asset_class": AssetClass.EQUITY,
+        "interval": AlphaVantageIntradayInterval.FIVE_MINUTES,
+        "total_limit": 3,
+    }
     return AlphaVantageRESTFeed(**{**defaults, **kwargs})
 
 
@@ -101,7 +101,6 @@ def _make_mock_response(payload: dict, status_code: int = 200) -> MagicMock:
             "error", request=MagicMock(), response=mock
         )
     return mock
-
 
 
 class TestAlphaVantageConstruction:
@@ -294,8 +293,7 @@ class TestAlphaVantageFindTimeSeries:
 
 
 class TestAlphaVantageStream:
-    @pytest.mark.asyncio
-    async def test_equity_intraday_events(self):
+    def test_equity_intraday_events(self):
         feed = make_feed(
             symbols=["IBM"],
             asset_class=AssetClass.EQUITY,
@@ -311,7 +309,7 @@ class TestAlphaVantageStream:
             mock_client_cls.return_value.__aenter__.return_value = mock_client
             mock_client.get = AsyncMock(return_value=mock_response)
 
-            events = [event async for event in feed.stream()]
+            events = [event for event in feed.stream()]
 
         assert len(events) == 2
         event = events[0]
@@ -322,8 +320,7 @@ class TestAlphaVantageStream:
         assert event.close == 150.0
         assert event.volume == 20000.0
 
-    @pytest.mark.asyncio
-    async def test_fx_daily_no_volume(self):
+    def test_fx_daily_no_volume(self):
         feed = make_feed(
             symbols=["EUR/USD"],
             asset_class=AssetClass.FX,
@@ -339,14 +336,13 @@ class TestAlphaVantageStream:
             mock_client_cls.return_value.__aenter__.return_value = mock_client
             mock_client.get = AsyncMock(return_value=mock_response)
 
-            events = [event async for event in feed.stream()]
+            events = [event for event in feed.stream()]
 
         assert len(events) == 2
         assert all(e.volume is None for e in events)
         assert events[0].open == 1.0850
 
-    @pytest.mark.asyncio
-    async def test_crypto_periodic_uses_usd_keys(self):
+    def test_crypto_periodic_uses_usd_keys(self):
         feed = make_feed(
             symbols=["BTC"],
             asset_class=AssetClass.CRYPTO,
@@ -362,14 +358,13 @@ class TestAlphaVantageStream:
             mock_client_cls.return_value.__aenter__.return_value = mock_client
             mock_client.get = AsyncMock(return_value=mock_response)
 
-            events = [event async for event in feed.stream()]
+            events = [event for event in feed.stream()]
 
         assert len(events) == 2
         assert events[0].open == 41000.0
         assert events[0].volume == 2000.0
 
-    @pytest.mark.asyncio
-    async def test_total_limit_respected(self):
+    def test_total_limit_respected(self):
         feed = make_feed(
             symbols=["IBM"],
             total_limit=1,
@@ -383,12 +378,11 @@ class TestAlphaVantageStream:
             mock_client_cls.return_value.__aenter__.return_value = mock_client
             mock_client.get = AsyncMock(return_value=mock_response)
 
-            events = [event async for event in feed.stream()]
+            events = [event for event in feed.stream()]
 
         assert len(events) == 1
 
-    @pytest.mark.asyncio
-    async def test_events_in_chronological_order(self):
+    def test_events_in_chronological_order(self):
         feed = make_feed(symbols=["IBM"], total_limit=2)
         mock_response = _make_mock_response(_intraday_response())
 
@@ -399,33 +393,32 @@ class TestAlphaVantageStream:
             mock_client_cls.return_value.__aenter__.return_value = mock_client
             mock_client.get = AsyncMock(return_value=mock_response)
 
-            events = [event async for event in feed.stream()]
+            events = [event for event in feed.stream()]
 
         timestamps = [e.timestamp for e in events]
         assert timestamps == sorted(timestamps)
 
-    @pytest.mark.asyncio
-    async def test_multiple_symbols_sleep_between(self):
+    def test_multiple_symbols_sleep_between(self):
         feed = make_feed(symbols=["IBM", "AAPL"], total_limit=2)
         mock_response = _make_mock_response(_intraday_response())
 
-        with patch(
-            "dejavu.data.feeds.alpha_vantage.httpx.AsyncClient"
-        ) as mock_client_cls, patch(
-            "dejavu.data.feeds.alpha_vantage.asyncio.sleep"
-        ) as mock_sleep:
+        with (
+            patch(
+                "dejavu.data.feeds.alpha_vantage.httpx.AsyncClient"
+            ) as mock_client_cls,
+            patch("dejavu.data.feeds.alpha_vantage.asyncio.sleep") as mock_sleep,
+        ):
             mock_client = AsyncMock()
             mock_client_cls.return_value.__aenter__.return_value = mock_client
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_sleep.return_value = None
 
-            events = [event async for event in feed.stream()]
+            events = [event for event in feed.stream()]
 
         mock_sleep.assert_called_once_with(12)
         assert len(events) == 4  # 2 symbols × 2 events each
 
-    @pytest.mark.asyncio
-    async def test_http_error_raises(self):
+    def test_http_error_raises(self):
         feed = make_feed()
         mock_response = _make_mock_response({}, status_code=403)
 
@@ -437,10 +430,9 @@ class TestAlphaVantageStream:
             mock_client.get = AsyncMock(return_value=mock_response)
 
             with pytest.raises(httpx.HTTPStatusError):
-                _ = [event async for event in feed.stream()]
+                _ = [event for event in feed.stream()]
 
-    @pytest.mark.asyncio
-    async def test_api_error_message_raises_value_error(self):
+    def test_api_error_message_raises_value_error(self):
         feed = make_feed()
         mock_response = _make_mock_response(
             _error_response("Error Message", "Invalid API call")
@@ -454,13 +446,12 @@ class TestAlphaVantageStream:
             mock_client.get = AsyncMock(return_value=mock_response)
 
             with pytest.raises(ValueError, match="Invalid API call"):
-                _ = [event async for event in feed.stream()]
+                _ = [event for event in feed.stream()]
 
 
 @pytest.mark.integration
 class TestAlphaVantageIntegration:
-    @pytest.mark.asyncio
-    async def test_equity_intraday(self):
+    def test_equity_intraday(self):
         feed = AlphaVantageRESTFeed(
             api_key=os.environ["ALPHAVANTAGE_API_KEY"],
             symbols=["IBM"],
@@ -468,13 +459,12 @@ class TestAlphaVantageIntegration:
             interval=AlphaVantageIntradayInterval.FIVE_MINUTES,
             total_limit=5,
         )
-        events = [event async for event in feed.stream()]
+        events = [event for event in feed.stream()]
         assert len(events) == 5
         assert all(e.type == EventType.MARKET for e in events)
         assert all(e.volume is not None for e in events)
 
-    @pytest.mark.asyncio
-    async def test_fx_daily(self):
+    def test_fx_daily(self):
         feed = AlphaVantageRESTFeed(
             api_key=os.environ["ALPHAVANTAGE_API_KEY"],
             symbols=["EUR/USD"],
@@ -482,12 +472,11 @@ class TestAlphaVantageIntegration:
             interval=AlphaVantagePeriodicInterval.DAILY,
             total_limit=5,
         )
-        events = [event async for event in feed.stream()]
+        events = [event for event in feed.stream()]
         assert len(events) == 5
         assert all(e.volume is None for e in events)
 
-    @pytest.mark.asyncio
-    async def test_fx_weekly(self):
+    def test_fx_weekly(self):
         feed = AlphaVantageRESTFeed(
             api_key=os.environ["ALPHAVANTAGE_API_KEY"],
             symbols=["GBP/JPY"],
@@ -495,11 +484,10 @@ class TestAlphaVantageIntegration:
             interval=AlphaVantagePeriodicInterval.WEEKLY,
             total_limit=5,
         )
-        events = [event async for event in feed.stream()]
+        events = [event for event in feed.stream()]
         assert len(events) == 5
 
-    @pytest.mark.asyncio
-    async def test_crypto_daily(self):
+    def test_crypto_daily(self):
         feed = AlphaVantageRESTFeed(
             api_key=os.environ["ALPHAVANTAGE_API_KEY"],
             symbols=["BTC"],
@@ -507,12 +495,11 @@ class TestAlphaVantageIntegration:
             interval=AlphaVantagePeriodicInterval.DAILY,
             total_limit=5,
         )
-        events = [event async for event in feed.stream()]
+        events = [event for event in feed.stream()]
         assert len(events) == 5
         assert all(e.volume is not None for e in events)
 
-    @pytest.mark.asyncio
-    async def test_events_are_chronological(self):
+    def test_events_are_chronological(self):
         feed = AlphaVantageRESTFeed(
             api_key=os.environ["ALPHAVANTAGE_API_KEY"],
             symbols=["IBM"],
@@ -520,6 +507,6 @@ class TestAlphaVantageIntegration:
             interval=AlphaVantagePeriodicInterval.MONTHLY,
             total_limit=10,
         )
-        events = [event async for event in feed.stream()]
+        events = [event for event in feed.stream()]
         timestamps = [e.timestamp for e in events]
         assert timestamps == sorted(timestamps)

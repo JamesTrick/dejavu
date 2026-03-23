@@ -10,6 +10,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.5.1",
+    "pyrefly>=0.57.1",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "pytest-benchmark>=5.2.3",
@@ -40,7 +42,7 @@ markers = [
 [tool.ruff]
 # Target version for syntax highlighting/checks
 target-version = "py312"
-line-length = 88 # The Black standard
+line-length = 88
 
 [tool.ruff.lint]
 # Selected rule sets
@@ -57,7 +59,10 @@ select = [
 ]
 ignore = [
     "E501", # Ignore line length violations (Ruff formatter handles this)
-    "B008", # Allow function calls in default arguments (useful for FastAPI/Typer)
+    "B008", # Allow function calls in default arguments
+    "C416", # Allow list comphrension
+    "E731", # Allow lambda functions
+
 ]
 
 [tool.ruff.lint.isort]

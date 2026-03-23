@@ -30,15 +30,6 @@ class SyncFeed(DataFeed):
         yield from self._events
 
 
-class AsyncFeed(DataFeed):
-    def __init__(self, events: list[MarketEvent]):
-        self._events = events
-
-    async def stream(self) -> AsyncIterator[MarketEvent]:
-        for event in self._events:
-            yield event
-
-
 class EmptyFeed(DataFeed):
     def stream(self) -> Iterator[MarketEvent]:
         return iter([])
@@ -64,14 +55,18 @@ class TestCombinedDataFeed:
         assert result == events
 
     def test_two_sync_feeds_merged_in_timestamp_order(self):
-        feed_a = SyncFeed([
-            make_event("AAPL", datetime(2024, 1, 1, 9, 30)),
-            make_event("AAPL", datetime(2024, 1, 1, 9, 32)),
-        ])
-        feed_b = SyncFeed([
-            make_event("MSFT", datetime(2024, 1, 1, 9, 31)),
-            make_event("MSFT", datetime(2024, 1, 1, 9, 33)),
-        ])
+        feed_a = SyncFeed(
+            [
+                make_event("AAPL", datetime(2024, 1, 1, 9, 30)),
+                make_event("AAPL", datetime(2024, 1, 1, 9, 32)),
+            ]
+        )
+        feed_b = SyncFeed(
+            [
+                make_event("MSFT", datetime(2024, 1, 1, 9, 31)),
+                make_event("MSFT", datetime(2024, 1, 1, 9, 33)),
+            ]
+        )
 
         result = list(CombinedDataFeed(feed_a, feed_b).stream())
         timestamps = [e.timestamp for e in result]
@@ -91,7 +86,7 @@ class TestCombinedDataFeed:
         ]
 
         result = list(
-            CombinedDataFeed(SyncFeed(sync_events), AsyncFeed(async_events)).stream()
+            CombinedDataFeed(SyncFeed(sync_events), SyncFeed(async_events)).stream()
         )
         timestamps = [e.timestamp for e in result]
 
@@ -123,13 +118,6 @@ class TestCombinedDataFeed:
     def test_all_empty_feeds_yields_nothing(self):
         result = list(CombinedDataFeed(EmptyFeed(), EmptyFeed()).stream())
         assert result == []
-
-    def test_empty_async_feed(self):
-        events = [make_event("AAPL", datetime(2024, 1, 1, 9, 30))]
-        result = list(CombinedDataFeed(SyncFeed(events), EmptyAsyncFeed()).stream())
-
-        assert len(result) == 1
-        assert result[0].instrument.symbol == "AAPL"
 
     def test_no_feeds_yields_nothing(self):
         result = list(CombinedDataFeed().stream())

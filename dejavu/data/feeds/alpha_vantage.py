@@ -12,6 +12,7 @@ from dejavu.schemas import AssetClass, EventType, Instrument, MarketEvent
 # and time-frame. This is why I've broken out the different timeframes into enums for URL building
 # within the feed itself
 
+
 class AlphaVantageIntradayInterval(StrEnum):
     ONE_MINUTE = "1min"
     FIVE_MINUTES = "5min"
@@ -160,7 +161,6 @@ class AlphaVantageRESTFeed(RESTDataFeed):
                 f"Supported: {list(_AV_INTRADAY_CONFIG if _is_intraday(self.interval) else _AV_PERIODIC_CONFIG)}"
             )
 
-
         self.api_key = api_key
         self.symbols = symbols
         self.asset_class = asset_class
@@ -172,14 +172,15 @@ class AlphaVantageRESTFeed(RESTDataFeed):
         )
         self._ohlcv_keys = (
             _CRYPTO_PERIODIC_OHLCV_KEYS
-            if asset_class == AssetClass.CRYPTO
-            and not _is_intraday(interval)
+            if asset_class == AssetClass.CRYPTO and not _is_intraday(interval)
             else _DEFAULT_OHLCV_KEYS
         )
 
     @staticmethod
     def _coerce_interval(interval: AlphaVantageInterval | str) -> AlphaVantageInterval:
-        if isinstance(interval, (AlphaVantageIntradayInterval, AlphaVantagePeriodicInterval)):
+        if isinstance(
+            interval, (AlphaVantageIntradayInterval, AlphaVantagePeriodicInterval)
+        ):
             return interval
         for enum_cls in (AlphaVantageIntradayInterval, AlphaVantagePeriodicInterval):
             try:
@@ -204,9 +205,7 @@ class AlphaVantageRESTFeed(RESTDataFeed):
             interval  # type: ignore[index]
         ]
         # Periodic FX uses from_symbol; all others use symbol
-        symbol_param = (
-            "from_symbol" if asset_class == AssetClass.FX else "symbol"
-        )
+        symbol_param = "from_symbol" if asset_class == AssetClass.FX else "symbol"
         return av_function, symbol_param, series_key_prefix
 
     def supports_asset_class(self, asset_class: AssetClass) -> bool:
@@ -251,11 +250,7 @@ class AlphaVantageRESTFeed(RESTDataFeed):
             if key.startswith(self._series_key_prefix):
                 return data[key]
 
-        error = (
-            data.get("Information")
-            or data.get("Note")
-            or data.get("Error Message")
-        )
+        error = data.get("Information") or data.get("Note") or data.get("Error Message")
         raise ValueError(
             f"Could not find time series data for '{symbol}'. "
             + (
@@ -275,7 +270,7 @@ class AlphaVantageRESTFeed(RESTDataFeed):
         time_series = self._find_time_series(data, symbol)
         return symbol, time_series
 
-    async def stream(self) -> AsyncIterator[MarketEvent]:
+    async def stream_async(self) -> AsyncIterator[MarketEvent]:
         open_key, high_key, low_key, close_key, volume_key = self._ohlcv_keys
 
         async with httpx.AsyncClient() as client:
@@ -298,5 +293,7 @@ class AlphaVantageRESTFeed(RESTDataFeed):
                         high=float(ohlcv[high_key]),
                         low=float(ohlcv[low_key]),
                         close=float(ohlcv[close_key]),
-                        volume=float(ohlcv[volume_key]) if volume_key in ohlcv else None
+                        volume=float(ohlcv[volume_key])
+                        if volume_key in ohlcv
+                        else None,
                     )

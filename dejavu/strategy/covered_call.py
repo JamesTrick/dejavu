@@ -1,10 +1,16 @@
 from dejavu.portfolio import Portfolio
-from dejavu.schemas import AssetClass, MarketEvent, Option, Order, OrderType
+from dejavu.schemas import (
+    AssetClass,
+    MarketEvent,
+    Option,
+    OptionMarketEvent,
+    Order,
+    OrderType,
+)
 from dejavu.strategy.base import Strategy
 
 
 class CoveredCallStrategy(Strategy):
-
     def __init__(self, portfolio: Portfolio, underlying: str):
         super().__init__(portfolio)
         self.underlying = underlying
@@ -16,8 +22,7 @@ class CoveredCallStrategy(Strategy):
     def _has_open_short_call(self) -> bool:
         # Check both filled positions AND pending-but-unfilled orders
         in_portfolio = (
-                self.short_call is not None
-                and self.short_call in self.portfolio.positions
+            self.short_call is not None and self.short_call in self.portfolio.positions
         )
         return in_portfolio or self._pending_call is not None
 
@@ -51,13 +56,14 @@ class CoveredCallStrategy(Strategy):
 
         # ── Sell OTM call if none open or pending ─────────────────────────
         if (
-                self.bought_stock
-                and not self._has_open_short_call()
-                and isinstance(inst, Option)
-                and inst.option_type == "C"
-                and inst.underlying == self.underlying
-                and 0.20 <= (event.delta or 0.0) <= 0.40
-                and event.close >= 0.50  # pre-slippage price floor
+            self.bought_stock
+            and not self._has_open_short_call()
+            and isinstance(event, OptionMarketEvent)
+            and isinstance(inst, Option)
+            and inst.option_type == "C"
+            and inst.underlying == self.underlying
+            and 0.20 <= (event.delta or 0.0) <= 0.40
+            and event.close >= 0.50  # pre-slippage price floor
         ):
             self._pending_call = inst.symbol
             self.short_call = inst.symbol

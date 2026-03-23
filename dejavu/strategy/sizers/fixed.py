@@ -1,3 +1,4 @@
+from dejavu.portfolio import Portfolio
 from dejavu.strategy.sizers import PositionSizer
 
 
@@ -5,6 +6,7 @@ class FixedUnits(PositionSizer):
     """This is the most basic position sizer, and it simply allocates a fixed number of units per trade, regardless
     of price or portfolio size.
     """
+
     def __init__(self, units: float = 100):
         """
 
@@ -13,14 +15,15 @@ class FixedUnits(PositionSizer):
         """
         self.units = units
 
-    def size(self, symbol, price, portfolio, **kwargs) -> float:
+    def size(self, symbol: str, price: float, portfolio: Portfolio, **kwargs) -> float:  # noqa: ARG002
         return self.units
 
 
 class FixedDollar(PositionSizer):
     """Similar to `FixedUnits`, this is a basic position sizer, and it simply allocates how much capital (money) to
-     allocate to a single trade.
+    allocate to a single trade.
     """
+
     def __init__(self, dollar_amount: float = 5_000):
         """
 
@@ -29,5 +32,5 @@ class FixedDollar(PositionSizer):
         """
         self.dollar_amount = dollar_amount
 
-    def size(self, symbol, price, portfolio, **kwargs) -> float:
+    def size(self, symbol: str, price: float, portfolio: Portfolio, **kwargs) -> float:  # noqa: ARG002
         return self.dollar_amount / price

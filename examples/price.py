@@ -13,7 +13,6 @@ from dejavu.strategy.base import Strategy
 
 
 class SimpleStrategy(Strategy):
-
     def __init__(self, portfolio: Portfolio, underlying: str):
         super().__init__(portfolio)
         self.portfolio = portfolio
@@ -29,20 +28,29 @@ class SimpleStrategy(Strategy):
         in_position = self.underlying in self.portfolio.positions
 
         if event.close > self.previous_price and not in_position:
-            orders.append((self.buy(
-                self.underlying,
-                qty=10,
-                order_type=OrderType.MARKET,
-                asset_class=AssetClass.EQUITY,
-            ), {"asset_class": AssetClass.EQUITY})
+            orders.append(
+                (
+                    self.buy(
+                        self.underlying,
+                        qty=10,
+                        order_type=OrderType.MARKET,
+                        asset_class=AssetClass.EQUITY,
+                    ),
+                    {"asset_class": AssetClass.EQUITY},
                 )
+            )
         elif event.close < self.previous_price and in_position:
-            orders.append((self.sell(
-                self.underlying,
-                qty=10,
-                order_type=OrderType.MARKET,
-                asset_class=AssetClass.EQUITY,
-            ), {"asset_class": AssetClass.EQUITY}))
+            orders.append(
+                (
+                    self.sell(
+                        self.underlying,
+                        qty=10,
+                        order_type=OrderType.MARKET,
+                        asset_class=AssetClass.EQUITY,
+                    ),
+                    {"asset_class": AssetClass.EQUITY},
+                )
+            )
         self.previous_price = event.close
         return orders
 
@@ -71,29 +79,34 @@ def run_test():
 
     # ── Wire up components ────────────────────────────────────────
     portfolio = Portfolio(initial_capital=25_000)
-    strategy  = SimpleStrategy(portfolio, underlying="AAPL")
-    feed      = CSVDataFeed({"AAPL": "equity.csv"}, asset_classes={"AAPL": AssetClass.EQUITY})
-    slippage  = VolumeWeightedSlippage(impact_factor=0.1)
-    executor  = SimulatedExecutionHandler(commission_per_contract=0.65, slippage=slippage)
-    engine    = BacktestEngine(feed, strategy, portfolio, executor)
+    strategy = SimpleStrategy(portfolio, underlying="AAPL")
+    feed = CSVDataFeed(
+        {"AAPL": "equity.csv"}, asset_classes={"AAPL": AssetClass.EQUITY}
+    )
+    slippage = VolumeWeightedSlippage(impact_factor=0.1)
+    executor = SimulatedExecutionHandler(
+        commission_per_contract=0.65, slippage=slippage
+    )
+    engine = BacktestEngine(feed, strategy, portfolio, executor)
 
     # ── Run ───────────────────────────────────────────────────────
     print("\n--- Activity Log ---")
     engine.run()
 
     # ── Results ───────────────────────────────────────────────────
-    history = pd.DataFrame(portfolio.history).drop_duplicates("timestamp").set_index("timestamp")
+    history = (
+        pd.DataFrame(portfolio.history)
+        .drop_duplicates("timestamp")
+        .set_index("timestamp")
+    )
     returns = history["equity"].pct_change().dropna()
 
-    sharpe = (
-        np.sqrt(252) * returns.mean() / returns.std()
-        if returns.std() > 0 else 0
-    )
-    equity       = history["equity"]
-    peak         = equity.cummax()
+    sharpe = np.sqrt(252) * returns.mean() / returns.std() if returns.std() > 0 else 0
+    equity = history["equity"]
+    peak = equity.cummax()
     max_drawdown = ((equity - peak) / peak).min()
-    years        = (equity.index[-1] - equity.index[0]).days / 365.25
-    cagr         = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
+    years = (equity.index[-1] - equity.index[0]).days / 365.25
+    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
     trades_df = pd.DataFrame(portfolio.trades)

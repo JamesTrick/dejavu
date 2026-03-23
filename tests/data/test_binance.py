@@ -7,9 +7,9 @@ from dejavu.data.feeds.binance import BinanceRESTFeed
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_binance_integration():
+def test_binance_integration():
     feed = BinanceRESTFeed(symbols=["BTCUSDT"], interval="1m", total_limit=10)
-    events = [event async for event in feed.stream()]
+    events = [event for event in feed.stream()]
 
     assert len(events) == 10
     for event in events:
@@ -23,13 +23,13 @@ async def test_binance_integration():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_binance_multiple_symbols_integration():
+def test_binance_multiple_symbols_integration():
     symbols = ["BTCUSDT", "ETHUSDT"]
     limit = 10
     feed = BinanceRESTFeed(symbols=symbols, interval="1m", total_limit=limit)
 
     events = []
-    async for event in feed.stream():
+    for event in feed.stream():
         events.append(event)
 
     # Total events should be symbols * limit
@@ -41,7 +41,7 @@ async def test_binance_multiple_symbols_integration():
 
 
 @pytest.mark.asyncio
-async def test_binance_feed_unit(mocker):
+def test_binance_feed_unit(mocker):
     mock_candle = [1672531200000, "16000.0", "16100.0", "15900.0", "16050.0", "100.5"]
     mock_response = [mock_candle]
 
@@ -54,7 +54,7 @@ async def test_binance_feed_unit(mocker):
 
     feed = BinanceRESTFeed(symbols=["BTCUSDT"], interval="1m", total_limit=1)
     events = []
-    async for event in feed.stream():
+    for event in feed.stream():
         events.append(event)
 
     assert len(events) == 1
@@ -68,19 +68,18 @@ async def test_binance_feed_unit(mocker):
     assert kwargs["params"]["symbol"] == "BTCUSDT"
 
 
-@pytest.mark.asyncio
-async def test_binance_pagination_unit(mocker):
+def test_binance_pagination_unit(mocker):
     first_response = [[1000, "10", "11", "9", "10", "100"]]
     second_response = []
 
     mock_client = mocker.patch("httpx.AsyncClient.get", new_callable=AsyncMock)
     mock_client.side_effect = [
         MagicMock(json=lambda: first_response, raise_for_status=lambda: None),
-        MagicMock(json=lambda: second_response, raise_for_status=lambda: None)
+        MagicMock(json=lambda: second_response, raise_for_status=lambda: None),
     ]
 
     feed = BinanceRESTFeed(symbols=["BTCUSDT"], interval="1m", total_limit=2)
-    events = [e async for e in feed.stream()]
+    events = [e for e in feed.stream()]
 
     assert len(events) == 1
     # Verify the second call used the correct startTime (1000 + 1)

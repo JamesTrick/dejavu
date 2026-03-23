@@ -5,10 +5,11 @@ from enum import Enum, auto
 
 
 class EventType(Enum):
-    MARKET = auto()   # New price data arrived
-    SIGNAL = auto()   # Strategy generated a signal
-    ORDER = auto()    # Order submitted
-    FILL = auto()     # Order was executed
+    MARKET = auto()  # New price data arrived
+    SIGNAL = auto()  # Strategy generated a signal
+    ORDER = auto()  # Order submitted
+    FILL = auto()  # Order was executed
+
 
 class AssetClass(Enum):
     EQUITY = auto()
@@ -17,6 +18,7 @@ class AssetClass(Enum):
     FX = auto()
     CRYPTO = auto()
     COMMODITY = auto()
+
 
 @dataclass(frozen=True, kw_only=True)
 class Instrument:
@@ -33,15 +35,17 @@ class Option(Instrument):
     option_type: str
 
 
-@dataclass
+@dataclass(slots=True)
 class Event:
     type: EventType
     timestamp: datetime
+
 
 @dataclass(slots=True)
 class MarketEvent(Event):
     """Generic market event, representing a new price update for an asset. It supports OHLCV data and be used for both
     equities and options (with additional fields in OptionMarketEvent)."""
+
     instrument: Instrument
     open: float
     high: float
@@ -50,10 +54,6 @@ class MarketEvent(Event):
     volume: float | None = None
     bid: float | None = None
     ask: float | None = None
-
-    iv: float | None = None
-    delta: float | None = None
-    gamma: float | None = None
 
     @property
     def spread(self) -> float | None:
@@ -67,22 +67,24 @@ class MarketEvent(Event):
             return (self.bid + self.ask) / 2
         return None
 
-@dataclass
+
+@dataclass(slots=True)
 class OptionMarketEvent(MarketEvent):
     underlying: str = ""
     strike: float = 0.0
     expiry: datetime = field(default_factory=datetime.now)
-    option_type: str = "C"   # "C" or "P"
+    option_type: str = "C"  # "C" or "P"
     iv: float | None = None
     delta: float | None = None
     gamma: float | None = None
     theta: float | None = None
     vega: float | None = None
 
+
 @dataclass(slots=True)
 class Position:
     instrument: Instrument
-    quantity: float        # negative = short
+    quantity: float  # negative = short
     avg_cost: float
 
     def market_value(self, current_price: float) -> float:
@@ -94,20 +96,22 @@ class OrderType(Enum):
     LIMIT = auto()
     STOP = auto()
 
-@dataclass
+
+@dataclass(slots=True)
 class Order:
     instrument: Instrument
-    quantity: float        # positive = buy, negative = sell
+    quantity: float  # positive = buy, negative = sell
     order_type: OrderType
     limit_price: float | None = None
     stop_price: float | None = None
     order_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
+
 @dataclass
 class FillEvent(Event):
     order_id: str
     instrument: Instrument
-    quantity:   float
+    quantity: float
     fill_price: float
     commission: float
     bid: float | None = None
@@ -119,7 +123,10 @@ class FillEvent(Event):
         if self.bid is None or self.ask is None:
             return None
         mid = (self.bid + self.ask) / 2
-        return abs(self.fill_price - mid) * abs(self.quantity) * self.instrument.multiplier
+        return (
+            abs(self.fill_price - mid) * abs(self.quantity) * self.instrument.multiplier
+        )
+
 
 @dataclass
 class OrderEvent(Event):
@@ -134,12 +141,15 @@ class MultiLegOrder:
 
     If fill_as_unit=True, all legs must be filled together.
     """
+
     legs: list[Order]
-    strategy_type: str   # "strangle", "spread", "condor", etc.
-    fill_as_unit:  bool = True
+    strategy_type: str  # "strangle", "spread", "condor", etc.
+    fill_as_unit: bool = True
     order_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 class FillTiming(Enum):
-    SAME_BAR = auto()   # fill immediately on current event (good for intraday)
-    NEXT_BAR = auto()   # queue and fill on next event for this symbol (realistic for EOD)
+    SAME_BAR = auto()  # fill immediately on current event (good for intraday)
+    NEXT_BAR = (
+        auto()
+    )  # queue and fill on next event for this symbol (realistic for EOD)
