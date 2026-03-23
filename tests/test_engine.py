@@ -22,7 +22,9 @@ def make_instrument(symbol="AAPL", asset_class=AssetClass.EQUITY, multiplier=1.0
     return Instrument(symbol=symbol, asset_class=asset_class, multiplier=multiplier)
 
 
-def make_option(symbol="AAPL240119C00150", underlying="AAPL", strike=150.0, multiplier=100.0):
+def make_option(
+    symbol="AAPL240119C00150", underlying="AAPL", strike=150.0, multiplier=100.0
+):
     return Option(
         symbol=symbol,
         asset_class=AssetClass.OPTION,
@@ -87,7 +89,7 @@ def make_engine(
 
     call_count = [-1]
 
-    def on_market_side_effect(event):
+    def on_market_side_effect(_event):
         call_count[0] += 1
         return orders_per_event.get(call_count[0], [])
 
@@ -96,7 +98,7 @@ def make_engine(
     executor = MagicMock()
     executor_fills = executor_fills or {}
 
-    def execute_side_effect(order, market_event, portfolio):
+    def execute_side_effect(order, _market_event, _portfolio):
         return executor_fills.get(order.instrument.symbol)
 
     executor.execute.side_effect = execute_side_effect
@@ -134,7 +136,10 @@ class TestEngineLifecycle:
     def test_history_length_matches_event_count(self):
         inst = make_instrument()
         n = 10
-        events = [make_event(inst, timestamp=datetime(2024, 1, 2) + timedelta(days=i)) for i in range(n)]
+        events = [
+            make_event(inst, timestamp=datetime(2024, 1, 2) + timedelta(days=i))
+            for i in range(n)
+        ]
 
         real_portfolio = MagicMock()
         real_portfolio.equity = 25_000.0
@@ -308,7 +313,10 @@ class TestSameBarFillTiming:
         strategy.on_market.side_effect = [[order], []]
 
         engine = BacktestEngine(
-            feed, strategy, portfolio, executor,
+            feed,
+            strategy,
+            portfolio,
+            executor,
             fill_timing=FillTiming.SAME_BAR,
         )
         engine.run()
@@ -360,6 +368,7 @@ class TestSameBarFillTiming:
 # 4. Multi-Leg Orders
 # ─────────────────────────────────────────────
 
+
 class TestMultiLegOrders:
     def test_each_leg_routed_by_its_own_symbol(self):
         inst_a = make_instrument("AAPL")
@@ -382,7 +391,7 @@ class TestMultiLegOrders:
         fill_b = make_fill(leg_b, timestamp=t2)
 
         executor = MagicMock()
-        executor.execute.side_effect = lambda order, event, portfolio: (
+        executor.execute.side_effect = lambda order, event, portfolio: (  # noqa: ARG005
             fill_a if order.instrument.symbol == "AAPL" else fill_b
         )
 
@@ -395,7 +404,10 @@ class TestMultiLegOrders:
         strategy.on_market.side_effect = [[multi], [], []]
 
         engine = BacktestEngine(
-            feed, strategy, portfolio, executor,
+            feed,
+            strategy,
+            portfolio,
+            executor,
             fill_timing=FillTiming.NEXT_BAR,
         )
         engine.run()
@@ -418,7 +430,7 @@ class TestMultiLegOrders:
 
         executor = MagicMock()
         # Only AAPL fills; MSFT never gets an event
-        executor.execute.side_effect = lambda order, event, portfolio: (
+        executor.execute.side_effect = lambda order, event, portfolio: (  # noqa: ARG005
             fill_a if order.instrument.symbol == "AAPL" else None
         )
 
@@ -441,12 +453,11 @@ class TestMultiLegOrders:
 # 5. Pending Order Queue Behaviour
 # ─────────────────────────────────────────────
 
+
 class TestPendingOrders:
     def test_order_retried_each_bar_until_filled(self):
         inst = make_instrument()
-        events = [
-            make_event(inst, timestamp=datetime(2024, 1, i)) for i in range(2, 6)
-        ]
+        events = [make_event(inst, timestamp=datetime(2024, 1, i)) for i in range(2, 6)]
         order = make_order(inst)
         fill = make_fill(order)
 
@@ -541,7 +552,7 @@ class TestPendingOrders:
         fill_b = make_fill(order_b)
 
         executor = MagicMock()
-        executor.execute.side_effect = lambda order, event, portfolio: (
+        executor.execute.side_effect = lambda order, event, portfolio: (  # noqa: ARG005
             fill_a if order.instrument.symbol == "AAPL" else fill_b
         )
 
@@ -562,6 +573,7 @@ class TestPendingOrders:
 # ─────────────────────────────────────────────
 # 6. Rebalancer Integration
 # ─────────────────────────────────────────────
+
 
 class TestRebalancer:
     def test_rebalancer_orders_are_queued(self):
@@ -625,6 +637,7 @@ class TestRebalancer:
 # 7. Executor Crash Resilience
 # ─────────────────────────────────────────────
 
+
 class TestExecutorResilience:
     def test_executor_returning_none_does_not_crash_engine(self):
         inst = make_instrument()
@@ -677,6 +690,7 @@ class TestExecutorResilience:
 # 8. Options-Specific Behaviour
 # ─────────────────────────────────────────────
 
+
 class TestOptionsOrders:
     def test_option_order_uses_multiplier_in_fill(self):
         opt = make_option()
@@ -716,7 +730,7 @@ class TestOptionsOrders:
         op_fill = make_fill(op_order, timestamp=t2)
 
         executor = MagicMock()
-        executor.execute.side_effect = lambda order, event, portfolio: (
+        executor.execute.side_effect = lambda order, event, portfolio: (  # noqa: ARG005
             eq_fill if order.instrument.symbol == "AAPL" else op_fill
         )
 

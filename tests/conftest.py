@@ -43,6 +43,7 @@ def buy_order(equity_instrument) -> Order:
         order_type=OrderType.MARKET,
     )
 
+
 @pytest.fixture
 def sell_order(equity_instrument) -> Order:
     return Order(
@@ -50,6 +51,7 @@ def sell_order(equity_instrument) -> Order:
         quantity=-100,
         order_type=OrderType.MARKET,
     )
+
 
 @pytest.fixture
 def limit_buy_order(equity_instrument) -> Order:
@@ -59,6 +61,7 @@ def limit_buy_order(equity_instrument) -> Order:
         order_type=OrderType.LIMIT,
         limit_price=176.0,  # below market low of 175 — should fill
     )
+
 
 @pytest.fixture
 def portfolio() -> Portfolio:

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from dejavu.portfolio import Portfolio
 from dejavu.portfolio.rebalancing.base import Rebalancer
-from dejavu.schemas import AssetClass, Order, OrderType
+from dejavu.schemas import Instrument, Order, OrderType
 
 
 class CalendarRebalancer(Rebalancer):
@@ -12,11 +12,13 @@ class CalendarRebalancer(Rebalancer):
 
     def __init__(self, frequency: str = "monthly"):
         assert frequency in self.FREQUENCIES
-        self.frequency      = frequency
-        self._last_rebal:   datetime | None = None
+        self.frequency = frequency
+        self._last_rebal: datetime | None = None
 
     def should_rebalance(
-        self, timestamp: datetime, portfolio: Portfolio | None = None
+        self,
+        timestamp: datetime,
+        portfolio: Portfolio | None = None,  # noqa: ARG002
     ) -> bool:
         if self._last_rebal is None:
             return True
@@ -31,13 +33,17 @@ class CalendarRebalancer(Rebalancer):
                 or timestamp.year != self._last_rebal.year
             )
         elif self.frequency == "quarterly":
-            return (
-                (timestamp.month - 1) // 3
-                != (self._last_rebal.month - 1) // 3
-            )
+            return (timestamp.month - 1) // 3 != (self._last_rebal.month - 1) // 3
         return False
 
-    def generate_orders(self, timestamp, portfolio, target_weights, prices):
+    def generate_orders(
+        self,
+        timestamp: datetime,
+        portfolio: Portfolio,
+        target_weights,
+        prices: dict[str, float],
+        instruments: dict[str, Instrument],
+    ) -> list[Order]:
         orders = []
         self._last_rebal = timestamp
 
@@ -46,22 +52,26 @@ class CalendarRebalancer(Rebalancer):
             if not price:
                 continue
 
-            target_value   = portfolio.equity * target_pct
-            target_qty     = target_value / price
-            current_qty    = portfolio.positions.get(symbol)
-            current_qty    = current_qty.quantity if current_qty else 0.0
-            delta_qty      = target_qty - current_qty
+            target_value = portfolio.equity * target_pct
+            target_qty = target_value / price
+            position = portfolio.positions.get(symbol)
+            current_qty = position.quantity if position else 0.0
+            delta_qty = target_qty - current_qty
 
-            if abs(delta_qty) < 0.01:   # ignore rounding noise
+            if abs(delta_qty) < 0.01:
                 continue
 
-            orders.append(Order(
-                symbol=symbol,
-                quantity=round(delta_qty, 4),
-                order_type=OrderType.MARKET,
-                asset_class=AssetClass.EQUITY,
-            ))
+            instrument = position.instrument if position else instruments.get(symbol)
+            if instrument is None:
+                continue  # can't build an order without an instrument
 
+            orders.append(
+                Order(
+                    instrument=instrument,
+                    quantity=round(delta_qty, 4),
+                    order_type=OrderType.MARKET,
+                )
+            )
         return orders
 
 
@@ -70,11 +80,14 @@ class ThresholdRebalancer(Rebalancer):
     Rebalance when any position drifts more than `threshold`
     from its target weight. More tax/cost efficient than calendar.
     """
+
     def __init__(self, threshold: float = 0.05):
         self.threshold = threshold
 
     def should_rebalance(
-        self, timestamp: datetime, portfolio: Portfolio | None = None
+        self,
+        timestamp: datetime,  # noqa: ARG002
+        portfolio: Portfolio | None = None,
     ) -> bool:
         if portfolio is None or not portfolio.positions:
             return False
@@ -93,6 +106,12 @@ class ThresholdRebalancer(Rebalancer):
         equal_target = 1.0 / len(weights)
         return max(abs(w - equal_target) for w in weights)
 
-    def generate_orders(self, timestamp, portfolio, target_weights, prices):
-        # Same logic as CalendarRebalancer
-        ...
+    def generate_orders(
+        self,
+        timestamp: datetime,
+        portfolio: Portfolio,
+        target_weights,
+        prices: dict[str, float],
+        instruments: dict[str, Instrument],
+    ) -> list[Order]:
+        raise NotImplementedError

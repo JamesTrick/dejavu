@@ -14,6 +14,7 @@ def btc() -> Instrument:
         asset_class=AssetClass.CRYPTO,
     )
 
+
 def test_per_contract(btc: Instrument):
     commission = PerContractCommission(0.65)
     order = Order(
@@ -38,4 +39,3 @@ def test_per_order_value(btc: Instrument):
 
     assert isinstance(commission, float)
     assert commission == (0.65 * (10 * 20))
-

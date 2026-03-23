@@ -6,7 +6,10 @@ from dejavu.schemas import AssetClass, Order
 class CommissionModel(ABC):
     @abstractmethod
     def calculate(
-        self, order: Order, fill_price: float, multiplier: float  # noqa: ARG002
+        self,
+        order: Order,
+        fill_price: float,
+        multiplier: float,  # noqa: ARG002
     ) -> float: ...
 
 
@@ -14,6 +17,7 @@ class PerContractCommission(CommissionModel):
     """This commission scheme takes a rate, percentage and applies it the order quantity. Most commonly would be used
     for Options contracts or derivatives.
     """
+
     def __init__(self, rate: float = 0.65):
         """
 
@@ -22,13 +26,13 @@ class PerContractCommission(CommissionModel):
         """
         self.rate = rate
 
-    def calculate(self, order: Order, fill_price: float, multiplier: float) -> float:
+    def calculate(self, order: Order, fill_price: float, multiplier: float) -> float:  # noqa: ARG002
         return abs(order.quantity) * self.rate
 
 
 class PercentageOfNotionalCommission(CommissionModel):
-    """This commission structure takes a flat % of the total order value (pre-commission).
-    """
+    """This commission structure takes a flat % of the total order value (pre-commission)."""
+
     def __init__(self, rate: float = 0.001):
         self.rate = rate
 
@@ -78,7 +82,12 @@ class AssetClassCommission(CommissionModel):
     )
     ```
     """
-    def __init__(self, models: dict[AssetClass, CommissionModel], default: CommissionModel | None = None):
+
+    def __init__(
+        self,
+        models: dict[AssetClass, CommissionModel],
+        default: CommissionModel | None = None,
+    ):
         self.models = models
         self.default = default
 

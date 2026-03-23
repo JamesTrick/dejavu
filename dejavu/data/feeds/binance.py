@@ -12,6 +12,7 @@ class BinanceSupportedIntervals(StrEnum):
     """Binance supports a number of intervals, these are documented in their API docs. This enum is provided for convenience,
     but you can also just pass the string directly to the feed.
     """
+
     ONE_MINUTE = "1m"
     THREE_MINUTES = "3m"
     FIVE_MINUTES = "5m"
@@ -42,7 +43,13 @@ class BinanceRESTFeed(RESTDataFeed):
         - Users may experience a number of HTTP errors when fetching data from Binance. One of the most perplexing ones is HTTP Error 451. Which typically
          occurs if you're calling this function from a region where Binance services are restricted.
     """
-    def __init__(self, symbols: list[str], interval: BinanceSupportedIntervals, total_limit: int = 2000):
+
+    def __init__(
+        self,
+        symbols: list[str],
+        interval: BinanceSupportedIntervals,
+        total_limit: int = 2000,
+    ):
         """_summary_
 
         Args:
@@ -81,14 +88,14 @@ class BinanceRESTFeed(RESTDataFeed):
                 break
 
             all_candles.extend(batch)
-            last_ts = batch[-1][0] # Update the anchor timestamp
+            last_ts = batch[-1][0]  # Update the anchor timestamp
 
             if len(all_candles) < self.total_limit:
                 await asyncio.sleep(0.1)
 
         return symbol, all_candles
 
-    async def stream(self):
+    async def stream_async(self):
         async with httpx.AsyncClient() as client:
             tasks = [self._fetch_paginated_symbol(client, s) for s in self.symbols]
             results = await asyncio.gather(*tasks)
@@ -98,9 +105,11 @@ class BinanceRESTFeed(RESTDataFeed):
                 for c in candles:
                     yield MarketEvent(
                         type=EventType.MARKET,
-                        timestamp=pd.to_datetime(c[0], unit='ms'),
+                        timestamp=pd.to_datetime(c[0], unit="ms"),
                         instrument=inst,
-                        open=float(c[1]), high=float(c[2]),
-                        low=float(c[3]), close=float(c[4]),
-                        volume=float(c[5])
+                        open=float(c[1]),
+                        high=float(c[2]),
+                        low=float(c[3]),
+                        close=float(c[4]),
+                        volume=float(c[5]),
                     )

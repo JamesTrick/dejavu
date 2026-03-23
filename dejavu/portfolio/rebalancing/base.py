@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 
 from dejavu.portfolio import Portfolio
-from dejavu.schemas import Order
+from dejavu.schemas import Instrument, Order
 
 
 class Rebalancer(ABC):
@@ -16,10 +16,11 @@ class Rebalancer(ABC):
     @abstractmethod
     def generate_orders(
         self,
-        timestamp:      datetime,
-        portfolio:      Portfolio,
+        timestamp: datetime,
+        portfolio: Portfolio,
         target_weights: dict[str, float],  # symbol -> target % of equity
-        prices:         dict[str, float],
+        prices: dict[str, float],
+        instruments: dict[str, Instrument],
     ) -> list[Order]:
         """Generate the corrective orders to hit target weights."""
         ...

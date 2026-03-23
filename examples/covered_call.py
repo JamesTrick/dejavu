@@ -1,9 +1,6 @@
-from datetime import datetime
-
 import numpy as np
 import pandas as pd
 
-from data.generate_data import generate_equity_csv, generate_options_csv
 from dejavu.data.feed import CombinedDataFeed, CSVDataFeed
 from dejavu.engine import BacktestEngine
 from dejavu.execution.commission import (
@@ -22,30 +19,13 @@ def run_test():
     print("  BACKTEST: Covered Call Strategy")
     print("=" * 60)
 
-    start = datetime(2024, 1, 2)
-
-    # ── Generate data ─────────────────────────────────────────────
-    equity_rows = generate_equity_csv(
-        path="equity.csv",
-        symbol="AAPL",
-        start=start,
-        days=252,
-        start_price=180.0,
-    )
-    generate_options_csv(
-        path="options.csv",
-        equity_rows=equity_rows,
-        underlying="AAPL",
-        expiry_cycles=4,
-    )
-
     # ── Wire up components ────────────────────────────────────────
     portfolio = Portfolio(initial_capital=25_000)
-    strategy  = CoveredCallStrategy(portfolio, underlying="AAPL")
-    equity_feed = CSVDataFeed("equity.csv", asset_class=AssetClass.EQUITY)
-    options_feed = CSVDataFeed("options.csv", asset_class=AssetClass.OPTION)
+    strategy = CoveredCallStrategy(portfolio, underlying="AAPL")
+    equity_feed = CSVDataFeed("../data/equity.csv", asset_class=AssetClass.EQUITY)
+    options_feed = CSVDataFeed("../data/options.csv", asset_class=AssetClass.OPTION)
     feed = CombinedDataFeed(equity_feed, options_feed)
-    slippage  = VolumeWeightedSlippage(impact_factor=0.1)
+    slippage = VolumeWeightedSlippage(impact_factor=0.1)
     commission_model = AssetClassCommission(
         models={
             AssetClass.EQUITY: TieredPerShareCommission(
@@ -57,27 +37,30 @@ def run_test():
         },
         default=PerContractCommission(rate=0.65),
     )
-    executor  = SimulatedExecutionHandler(commission=commission_model, slippage=slippage)
-    engine    = BacktestEngine(feed, strategy, portfolio, executor)
+    executor = SimulatedExecutionHandler(commission=commission_model, slippage=slippage)
+    engine = BacktestEngine(feed, strategy, portfolio, executor)
 
     # ── Run ───────────────────────────────────────────────────────
     print("\n--- Activity Log ---")
     engine.run()
 
     # ── Results ───────────────────────────────────────────────────
-    history = pd.DataFrame(portfolio.history).drop_duplicates("timestamp").set_index("timestamp")
+    history = (
+        pd.DataFrame(portfolio.history)
+        .drop_duplicates("timestamp")
+        .set_index("timestamp")
+    )
     returns = history["equity"].pct_change().dropna()
 
-    sharpe = (
-        np.sqrt(252) * returns.mean() / returns.std()
-        if returns.std() > 0 else 0
-    )
+    sharpe = np.sqrt(252) * returns.mean() / returns.std() if returns.std() > 0 else 0
 
     equity = history["equity"]
     peak = equity.cummax()
     max_drawdown = ((equity - peak) / peak).min()
 
-    years = max((equity.index[-1] - equity.index[0]).total_seconds() / (365.25 * 86400), 0.001)
+    years = max(
+        (equity.index[-1] - equity.index[0]).total_seconds() / (365.25 * 86400), 0.001
+    )
     cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")

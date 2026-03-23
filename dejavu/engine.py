@@ -4,7 +4,7 @@ from dejavu.data.feed import DataFeed
 from dejavu.execution.orders import ExecutionHandler
 from dejavu.portfolio import Portfolio
 from dejavu.portfolio.rebalancing.base import Rebalancer
-from dejavu.schemas import FillTiming, MultiLegOrder, OrderType
+from dejavu.schemas import FillTiming, Instrument, MultiLegOrder, OrderType
 from dejavu.strategy.base import Strategy
 
 
@@ -12,14 +12,15 @@ class BacktestEngine:
     """The Backtesting Engine is arguably the heart of Dejavu. It's incredibly performant, processing over 3.5 million
     bars per second. Given the speed, Dejavu can handle all sorts of data, making it quite flexible across the board.
     """
+
     def __init__(
         self,
-        feed:      DataFeed,
-        strategy:  Strategy,
+        feed: DataFeed,
+        strategy: Strategy,
         portfolio: Portfolio,
-        executor:  ExecutionHandler,
+        executor: ExecutionHandler,
         rebalancer: Rebalancer | None = None,
-        fill_timing: FillTiming = FillTiming.NEXT_BAR
+        fill_timing: FillTiming = FillTiming.NEXT_BAR,
     ):
         """
 
@@ -32,17 +33,17 @@ class BacktestEngine:
             fill_timing: When you want the bars filled. Defaults to NextBar, but can be switched to SAME_BAR if
                 dealing with intraday data.
         """
-        self.feed      = feed
-        self.strategy  = strategy
+        self.feed = feed
+        self.strategy = strategy
         self.portfolio = portfolio
-        self.executor  = executor
+        self.executor = executor
         self.rebalancer = rebalancer
         self.fill_timing = fill_timing
 
     def run(self):
         portfolio = self.portfolio
-        # Pending orders now just store (order, originating_event)
-        pending_by_symbol = defaultdict(list)
+        pending_by_symbol: defaultdict[str, list] = defaultdict(list)
+        instruments: dict[str, Instrument] = {}  # built up as events arrive
 
         rebalancer = self.rebalancer
         executor = self.executor
@@ -58,6 +59,9 @@ class BacktestEngine:
         for event in self.feed.stream():
             update_prices(event)
             sym = event.instrument.symbol
+            if sym not in instruments:
+                instruments[sym] = event.instrument
+
             # 1. Process Pending Orders
             pending = pending_by_symbol.get(sym)
             if pending:
@@ -81,25 +85,23 @@ class BacktestEngine:
                     portfolio=portfolio,
                     target_weights={},
                     prices=portfolio.prices,
+                    instruments=instruments,
                 ):
-                    # Route by instrument.symbol
                     pending_by_symbol[order.instrument.symbol].append((order, event))
 
             # 3. Strategy reacts
-            # We assume Strategy.on_market now just yields Orders directly, no meta dicts!
             for order in strategy.on_market(event):
                 legs = order.legs if isinstance(order, MultiLegOrder) else [order]
                 for o in legs:
                     if (
-                            self.fill_timing == FillTiming.SAME_BAR
-                            and o.order_type == OrderType.MARKET
-                            and o.instrument.symbol == sym
+                        self.fill_timing == FillTiming.SAME_BAR
+                        and o.order_type == OrderType.MARKET
+                        and o.instrument.symbol == sym
                     ):
                         fill = executor.execute(o, event, portfolio)
                         if fill:
                             apply_fill(fill)
                         else:
-                            # Couldn't fill even same-bar, queue it
                             pending_by_symbol[o.instrument.symbol].append((o, event))
                     else:
                         pending_by_symbol[o.instrument.symbol].append((o, event))
@@ -108,7 +110,6 @@ class BacktestEngine:
             hist_timestamps.append(event.timestamp)
             hist_equity.append(portfolio.equity)
             hist_cash.append(portfolio.cash)
-
 
         portfolio.history = [
             {"timestamp": t, "equity": e, "cash": c}

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from dejavu.data.feed import CSVDataFeed
+from dejavu.data.feeds.binance import BinanceRESTFeed
 from dejavu.engine import BacktestEngine
 from dejavu.execution.commission import AssetClassCommission, TieredPerShareCommission
 from dejavu.execution.orders import SimulatedExecutionHandler, VolumeWeightedSlippage
@@ -9,6 +9,7 @@ from dejavu.indicators.ma import SMA
 from dejavu.portfolio import Portfolio
 from dejavu.schemas import AssetClass, MarketEvent, Order, OrderType
 from dejavu.strategy.base import Strategy
+from dejavu.strategy.sizers import FixedDollar
 
 
 class MACrossOver(Strategy):
@@ -33,10 +34,13 @@ class MACrossOver(Strategy):
 
         if self.fast_ma > self.slow_ma and not in_position:
             # Golden cross — go long
+            qty = FixedDollar(dollar_amount=25_000 / 10).size(
+                symbol=self.underlying, price=event.close, portfolio=self.portfolio
+            )
             orders.append(
                 Order(
                     instrument=event.instrument,
-                    quantity=50,
+                    quantity=qty,
                     order_type=OrderType.MARKET,
                 ),
             )
@@ -48,11 +52,7 @@ class MACrossOver(Strategy):
         elif self.fast_ma.value < self.slow_ma.value and in_position:
             # Death cross — exit
             orders.append(
-                Order(
-                    instrument=event.instrument,
-                    quantity=-50,
-                    order_type=OrderType.MARKET,
-                ),
+                self.close(instrument=event.instrument, order_type=OrderType.MARKET)
             )
             print(
                 f"  [SELL] {event.timestamp.date()} | "
@@ -69,12 +69,12 @@ def run_test():
 
     # ── Wire up components ────────────────────────────────────────
     portfolio = Portfolio(initial_capital=25_000)
-    strategy = MACrossOver(portfolio, underlying="AAPL")
-    feed = CSVDataFeed(path="../data/equity.csv", asset_class=AssetClass.EQUITY)
+    strategy = MACrossOver(portfolio, underlying="BTCUSDT")
+    feed = BinanceRESTFeed(symbols=["BTCUSDT"], interval="1m")
     slippage = VolumeWeightedSlippage(impact_factor=0.1)
     commission_model = AssetClassCommission(
         models={
-            AssetClass.EQUITY: TieredPerShareCommission(
+            AssetClass.CRYPTO: TieredPerShareCommission(
                 rate=0.005,
                 minimum=1.00,
                 max_pct_notional=0.01,
@@ -100,8 +100,6 @@ def run_test():
     equity = history["equity"]
     peak = equity.cummax()
     max_drawdown = ((equity - peak) / peak).min()
-    years = (equity.index[-1] - equity.index[0]).days / 365.25
-    cagr = (equity.iloc[-1] / equity.iloc[0]) ** (1 / years) - 1
 
     print("\n--- Trade Log ---")
     trades_df = pd.DataFrame(portfolio.trade_journal)
@@ -110,7 +108,6 @@ def run_test():
     print("\n--- Performance Summary ---")
     print(f"  Initial Capital : ${portfolio.initial_capital:>10,.2f}")
     print(f"  Final Equity    : ${equity.iloc[-1]:>10,.2f}")
-    print(f"  CAGR            : {cagr:>10.2%}")
     print(f"  Sharpe Ratio    : {sharpe:>10.2f}")
     print(f"  Max Drawdown    : {max_drawdown:>10.2%}")
     print(f"  Total Trades    : {len(trades_df):>10}")

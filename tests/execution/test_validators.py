@@ -5,7 +5,9 @@ from dejavu.schemas import Instrument, Order, OrderType, Position
 
 def test_cash_validator_rejects_when_insufficient(equity_instrument: Instrument):
     validator = CashValidator()
-    order = Order(instrument=equity_instrument, quantity=100, order_type=OrderType.MARKET)
+    order = Order(
+        instrument=equity_instrument, quantity=100, order_type=OrderType.MARKET
+    )
     portfolio = Portfolio(initial_capital=100)
 
     valid, reason = validator.validate(order, fill_price=200.0, portfolio=portfolio)
@@ -16,7 +18,9 @@ def test_cash_validator_rejects_when_insufficient(equity_instrument: Instrument)
 
 def test_cash_validator_allows_sell(equity_instrument: Instrument):
     validator = CashValidator()
-    order = Order(instrument=equity_instrument, quantity=-100, order_type=OrderType.MARKET)
+    order = Order(
+        instrument=equity_instrument, quantity=-100, order_type=OrderType.MARKET
+    )
     portfolio = Portfolio(initial_capital=0)
 
     valid, reason = validator.validate(order, fill_price=200.0, portfolio=portfolio)
@@ -33,6 +37,7 @@ class TestCashValidator:
 
     def test_rejects_buy_with_insufficient_cash(self, buy_order):
         from dejavu.portfolio import Portfolio
+
         poor_portfolio = Portfolio(initial_capital=100)  # can't afford 100 shares @ 182
         validator = CashValidator()
         valid, reason = validator.validate(buy_order, 182.0, poor_portfolio)
@@ -41,6 +46,7 @@ class TestCashValidator:
 
     def test_allows_sell_regardless_of_cash(self, sell_order):
         from dejavu.portfolio import Portfolio
+
         empty_portfolio = Portfolio(initial_capital=0)
         validator = CashValidator()
         valid, reason = validator.validate(sell_order, 182.0, empty_portfolio)
@@ -48,6 +54,7 @@ class TestCashValidator:
 
     def test_rejection_message_includes_amounts(self, buy_order):
         from dejavu.portfolio import Portfolio
+
         poor_portfolio = Portfolio(initial_capital=100)
         validator = CashValidator()
         valid, reason = validator.validate(buy_order, 182.0, poor_portfolio)
@@ -71,7 +78,9 @@ class TestShortValidator:
         valid, reason = validator.validate(sell_order, 182.0, portfolio)
         assert valid
 
-    def test_allows_closing_long_position(self, sell_order, portfolio, equity_instrument):
+    def test_allows_closing_long_position(
+        self, sell_order, portfolio, equity_instrument
+    ):
         # Simulate existing long position
         portfolio._positions[equity_instrument.symbol] = Position(
             instrument=equity_instrument, quantity=100, avg_cost=180.0

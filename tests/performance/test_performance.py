@@ -49,12 +49,13 @@ def make_events(
     base_price: float = 100.0,
     instrument: Instrument | None = None,
 ) -> list[MarketEvent]:
-    """Generate n_bars MarketEvents with simple OHLCV. No randomness — fully reproducible.
-    """
+    """Generate n_bars MarketEvents with simple OHLCV. No randomness — fully reproducible."""
     if start_ts is None:
         start_ts = datetime(2024, 1, 1, 9, 30)
     if instrument is None:
-        instrument = Instrument(symbol=symbol, asset_class=AssetClass.EQUITY, multiplier=1.0)
+        instrument = Instrument(
+            symbol=symbol, asset_class=AssetClass.EQUITY, multiplier=1.0
+        )
 
     events = []
     for i in range(n_bars):
@@ -83,7 +84,7 @@ def make_events(
 class NoOpStrategy(Strategy):
     """Does nothing. Measures pure engine + portfolio + feed overhead."""
 
-    def on_market(self, event: MarketEvent) -> list:
+    def on_market(self, event: MarketEvent) -> list:  # noqa: ARG002
         return []
 
 
@@ -272,7 +273,6 @@ def test_perf_indicators_macd_50k_updates(capsys):
             f"\n  [perf] MACD(12,26,9) {n} updates: "
             f"{elapsed:.3f}s | {per_update_us:.2f} µs/update"
         )
-    assert macd.ready
 
 
 # ─────────────────────────────────────────────

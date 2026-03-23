@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from dejavu.portfolio import Portfolio
-from dejavu.schemas import Option
+from dejavu.schemas import Option, Order
 
 
 @dataclass
@@ -28,15 +28,22 @@ class RealisticRegTModel:
             # 1. Equity Margin
             shares = equity_pos.quantity if equity_pos else 0.0
             if shares != 0:
-                total_margin += abs(shares) * current_u_price * self.config.equity_initial
+                total_margin += (
+                    abs(shares) * current_u_price * self.config.equity_initial
+                )
 
             # 2. Track covered shares to offset Call margin
             available_covered_shares = max(0.0, shares)
 
             for opt_sym in opt_symbols:
                 opt_pos = portfolio.positions[opt_sym]
-                instrument: Option = opt_pos.instrument
-                multiplier = getattr(opt_pos, 'multiplier', 100.0)
+                instrument = opt_pos.instrument
+
+                if not isinstance(instrument, Option):
+                    # In theory should all be options, but check for typing as well.
+                    continue
+
+                multiplier = instrument.multiplier
 
                 # Long options require no ongoing margin (paid upfront in cash)
                 if opt_pos.quantity > 0:
@@ -44,20 +51,24 @@ class RealisticRegTModel:
 
                 # Short Options Logic
                 contracts = abs(opt_pos.quantity)
-                strike = instrument.strike or 0.0
+                strike = instrument.strike
 
                 if instrument.option_type == "C":
                     # Check if covered by stock
                     contracts_to_margin = contracts
                     if available_covered_shares >= 100:
-                        covered_contracts = min(contracts, available_covered_shares // multiplier)
+                        covered_contracts = min(
+                            contracts, available_covered_shares // multiplier
+                        )
                         contracts_to_margin -= covered_contracts
-                        available_covered_shares -= (covered_contracts * multiplier)
+                        available_covered_shares -= covered_contracts * multiplier
 
                     if contracts_to_margin > 0:
                         # Naked Call Reg T Formula
                         otm_amount = max(0.0, strike - current_u_price)
-                        rule_1 = (self.config.option_base_pct * current_u_price) - otm_amount
+                        rule_1 = (
+                            self.config.option_base_pct * current_u_price
+                        ) - otm_amount
                         rule_2 = self.config.option_min_pct * current_u_price
 
                         per_share_req = max(rule_1, rule_2)
@@ -66,10 +77,56 @@ class RealisticRegTModel:
                 elif instrument.option_type == "P":
                     # Naked Put Reg T Formula (assuming no short stock offsets for simplicity here)
                     otm_amount = max(0.0, current_u_price - strike)
-                    rule_1 = (self.config.option_base_pct * current_u_price) - otm_amount
-                    rule_2 = self.config.option_min_pct * strike  # Puts use 10% of strike, not underlying
+                    rule_1 = (
+                        self.config.option_base_pct * current_u_price
+                    ) - otm_amount
+                    rule_2 = (
+                        self.config.option_min_pct * strike
+                    )  # Puts use 10% of strike, not underlying
 
                     per_share_req = max(rule_1, rule_2)
                     total_margin += contracts * multiplier * per_share_req
 
         return total_margin
+
+    def calculate_order_margin(self, order: Order, fill_price: float) -> float:
+        """
+        Estimate the margin required to place an order, based on the fill price.
+        """
+        instrument = order.instrument
+
+        if isinstance(instrument, Option):
+            # Long options: no margin required (debit paid upfront)
+            if order.quantity > 0:
+                return 0.0
+
+            # Short options
+            contracts = abs(order.quantity)
+            multiplier = instrument.multiplier
+            strike = instrument.strike
+
+            if instrument.option_type == "C":
+                # Naked call (conservative — no covered stock info at order time)
+                otm_amount = max(0.0, strike - fill_price)
+                rule_1 = (self.config.option_base_pct * fill_price) - otm_amount
+                rule_2 = self.config.option_min_pct * fill_price
+                per_share_req = max(rule_1, rule_2)
+                return contracts * multiplier * per_share_req
+
+            elif instrument.option_type == "P":
+                otm_amount = max(0.0, fill_price - strike)
+                rule_1 = (self.config.option_base_pct * fill_price) - otm_amount
+                rule_2 = self.config.option_min_pct * strike
+                per_share_req = max(rule_1, rule_2)
+                return contracts * multiplier * per_share_req
+
+            return 0.0
+
+        else:
+            # Equity
+            if order.quantity < 0:
+                # Short sale
+                return abs(order.quantity) * fill_price * self.config.equity_initial
+            else:
+                # Long equity — buying on margin
+                return order.quantity * fill_price * self.config.equity_initial

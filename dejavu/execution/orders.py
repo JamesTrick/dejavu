@@ -18,17 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionHandler(ABC):
-
-    def _get_fill_price(
-            self, order: Order, market: MarketEvent
-    ) -> float | None:
+    def _get_fill_price(self, order: Order, market: MarketEvent) -> float | None:
         """Shared price discovery logic for all handlers."""
         match order.order_type:
             case OrderType.MARKET:
                 return float(market.close)
             case OrderType.LIMIT:
                 if order.limit_price is None:
-                    logger.warning(f"Limit order missing price for {order.instrument.symbol}")
+                    logger.warning(
+                        f"Limit order missing price for {order.instrument.symbol}"
+                    )
                     return None
                 if order.quantity > 0 and market.low <= order.limit_price:
                     return float(order.limit_price)
@@ -39,14 +38,14 @@ class ExecutionHandler(ABC):
                 raise ValueError(f"Unsupported order type {order.order_type}")
 
     @abstractmethod
-    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
-        ...
+    def execute(
+        self, order: Order, market: MarketEvent, portfolio: Portfolio
+    ) -> FillEvent | None: ...
 
 
 class SlippageModel(ABC):
     @abstractmethod
-    def apply(self, order: Order, price: float, market: MarketEvent) -> float:
-        ...
+    def apply(self, order: Order, price: float, market: MarketEvent) -> float: ...
 
 
 class VolumeWeightedSlippage(SlippageModel):
@@ -55,6 +54,7 @@ class VolumeWeightedSlippage(SlippageModel):
     Args:
         SlippageModel (_type_): _description_
     """
+
     def __init__(self, impact_factor: float = 0.1):
         """_summary_
 
@@ -64,14 +64,15 @@ class VolumeWeightedSlippage(SlippageModel):
         self.impact_factor = impact_factor
 
     def apply(self, order: Order, price: float, market: MarketEvent) -> float:
-        # Safeguard against 0 volume to prevent math errors
-        participation = abs(order.quantity) / max(market.volume, 1)
+        volume = market.volume if market.volume is not None else 0
+        participation = abs(order.quantity) / max(volume, 1)
         slippage = price * self.impact_factor * participation
         return price + slippage if order.quantity > 0 else price - slippage
 
 
 class NoSlippage(SlippageModel):
     """Simple slippage that assumes no slippage occurs. In other words, the market price is the fill price."""
+
     def apply(self, order: Order, price: float, market: MarketEvent) -> float:  # noqa: ARG002
         return price
 
@@ -97,15 +98,26 @@ class AssetClassSlippage(SlippageModel):
 
 
 class CommissionOnlyHandler(ExecutionHandler):
-    def __init__(self, commission: CommissionModel, validators: list[OrderValidator] | None = None):
+    def __init__(
+        self,
+        commission: CommissionModel,
+        validators: list[OrderValidator] | None = None,
+    ):
         self.commission = commission
         self.validators = validators or []
 
-    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
+    def execute(
+        self,
+        order: Order,
+        market: MarketEvent,
+        portfolio: Portfolio,  # noqa: ARG002
+    ) -> FillEvent | None:
         fill_price = self._get_fill_price(order, market)
         if fill_price is None:
             return None
-        commission = self.commission.calculate(order, fill_price, order.instrument.multiplier)
+        commission = self.commission.calculate(
+            order, fill_price, order.instrument.multiplier
+        )
 
         return FillEvent(
             type=EventType.FILL,
@@ -120,16 +132,18 @@ class CommissionOnlyHandler(ExecutionHandler):
 
 class SimulatedExecutionHandler(ExecutionHandler):
     def __init__(
-            self,
-            slippage: SlippageModel,
-            commission: CommissionModel,
-            validators: list[OrderValidator] | None = None
+        self,
+        slippage: SlippageModel,
+        commission: CommissionModel,
+        validators: list[OrderValidator] | None = None,
     ):
         self.slippage = slippage
         self.commission = commission
         self.validators = validators or []
 
-    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
+    def execute(
+        self, order: Order, market: MarketEvent, portfolio: Portfolio
+    ) -> FillEvent | None:
         try:
             fill_price = self._get_fill_price(order, market)
             if fill_price is None:
@@ -160,8 +174,10 @@ class SimulatedExecutionHandler(ExecutionHandler):
             print(f"\n[EXECUTOR CRASH] Failed to execute {order.instrument.symbol}!")
             print(f"Error: {e}")
             import traceback
+
             traceback.print_exc()
             return None
+
 
 class MarginAwareExecutionHandler(ExecutionHandler):
     def __init__(
@@ -177,7 +193,9 @@ class MarginAwareExecutionHandler(ExecutionHandler):
         # Always include margin validator, plus any extras
         self.validators = [MarginValidator(margin_model)] + (validators or [])
 
-    def execute(self, order: Order, market: MarketEvent, portfolio: Portfolio) -> FillEvent | None:
+    def execute(
+        self, order: Order, market: MarketEvent, portfolio: Portfolio
+    ) -> FillEvent | None:
         try:
             fill_price = self._get_fill_price(order, market)
             if fill_price is None:
@@ -204,5 +222,7 @@ class MarginAwareExecutionHandler(ExecutionHandler):
                 commission=float(commission),
             )
         except Exception as e:
-            logger.error(f"[EXECUTOR CRASH] {order.instrument.symbol}: {e}", exc_info=True)
+            logger.error(
+                f"[EXECUTOR CRASH] {order.instrument.symbol}: {e}", exc_info=True
+            )
             return None

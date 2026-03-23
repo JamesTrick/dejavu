@@ -5,27 +5,36 @@ from datetime import datetime, timedelta
 
 # ── Greek calculations ────────────────────────────────────────────────────────
 
+
 def norm_cdf(x: float) -> float:
     """Approximation of the standard normal CDF."""
     return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
+
 def black_scholes(
-    S: float,       # underlying price
-    K: float,       # strike
-    T: float,       # time to expiry in years
-    r: float,       # risk-free rate
-    sigma: float,   # implied volatility
+    S: float,  # underlying price
+    K: float,  # strike
+    T: float,  # time to expiry in years
+    r: float,  # risk-free rate
+    sigma: float,  # implied volatility
     option_type: str = "C",
 ) -> dict:
     if T <= 0:
         intrinsic = max(0, S - K) if option_type == "C" else max(0, K - S)
-        return {"price": intrinsic, "delta": 0, "gamma": 0, "theta": 0, "vega": 0, "iv": sigma}
+        return {
+            "price": intrinsic,
+            "delta": 0,
+            "gamma": 0,
+            "theta": 0,
+            "vega": 0,
+            "iv": sigma,
+        }
 
     d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
     d2 = d1 - sigma * math.sqrt(T)
 
-    nd1  = norm_cdf(d1)
-    nd2  = norm_cdf(d2)
+    nd1 = norm_cdf(d1)
+    nd2 = norm_cdf(d2)
     nd1_ = norm_cdf(-d1)
     nd2_ = norm_cdf(-d2)
 
@@ -43,18 +52,20 @@ def black_scholes(
         -(S * pdf_d1 * sigma) / (2 * math.sqrt(T))
         - r * K * math.exp(-r * T) * (nd2 if option_type == "C" else nd2_)
     ) / 365
-    vega = S * pdf_d1 * math.sqrt(T) / 100   # per 1% vol move
+    vega = S * pdf_d1 * math.sqrt(T) / 100  # per 1% vol move
 
     return {
         "price": round(price, 4),
         "delta": round(delta, 4),
         "gamma": round(gamma, 6),
         "theta": round(theta, 4),
-        "vega":  round(vega, 4),
-        "iv":    round(sigma, 4),
+        "vega": round(vega, 4),
+        "iv": round(sigma, 4),
     }
 
+
 # ── Data generation ───────────────────────────────────────────────────────────
+
 
 def generate_equity_csv(
     path: str,
@@ -77,21 +88,23 @@ def generate_equity_csv(
             date += timedelta(days=1)
 
         daily_return = random.gauss(drift, volatility)
-        open_  = round(price, 2)
-        close  = round(price * (1 + daily_return), 2)
-        high   = round(max(open_, close) * (1 + abs(random.gauss(0, 0.003))), 2)
-        low    = round(min(open_, close) * (1 - abs(random.gauss(0, 0.003))), 2)
+        open_ = round(price, 2)
+        close = round(price * (1 + daily_return), 2)
+        high = round(max(open_, close) * (1 + abs(random.gauss(0, 0.003))), 2)
+        low = round(min(open_, close) * (1 - abs(random.gauss(0, 0.003))), 2)
         volume = int(random.gauss(1_000_000, 200_000))
 
-        rows.append({
-            "timestamp": date.strftime("%Y-%m-%d"),
-            "symbol":    symbol,
-            "open":      open_,
-            "high":      high,
-            "low":       low,
-            "close":     close,
-            "volume":    max(volume, 100_000),
-        })
+        rows.append(
+            {
+                "timestamp": date.strftime("%Y-%m-%d"),
+                "symbol": symbol,
+                "open": open_,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": max(volume, 100_000),
+            }
+        )
 
         price = close
         date += timedelta(days=1)
@@ -111,8 +124,8 @@ def generate_options_csv(
     underlying: str,
     risk_free: float = 0.05,
     base_iv: float = 0.25,
-    strikes_pct: list[float] = None,   # strikes as % of spot
-    expiry_cycles: int = 4,            # how many monthly expiries to model
+    strikes_pct: list[float] = None,  # strikes as % of spot
+    expiry_cycles: int = 4,  # how many monthly expiries to model
 ):
     """
     For each trading day, emit one option chain row per
@@ -133,7 +146,7 @@ def generate_options_csv(
         return fridays[2]
 
     first_date = datetime.strptime(equity_rows[0]["timestamp"], "%Y-%m-%d")
-    last_date  = datetime.strptime(equity_rows[-1]["timestamp"], "%Y-%m-%d")
+    last_date = datetime.strptime(equity_rows[-1]["timestamp"], "%Y-%m-%d")
 
     expiries = []
     year, month = first_date.year, first_date.month
@@ -151,8 +164,8 @@ def generate_options_csv(
 
     rows = []
     for eq in equity_rows:
-        date  = datetime.strptime(eq["timestamp"], "%Y-%m-%d")
-        spot  = eq["close"]
+        date = datetime.strptime(eq["timestamp"], "%Y-%m-%d")
+        spot = eq["close"]
 
         for expiry in expiries:
             if expiry <= date:
@@ -160,7 +173,7 @@ def generate_options_csv(
             T = (expiry - date).days / 365.0
 
             for pct in strikes_pct:
-                strike = round(spot * pct, 0)   # snap to whole dollar
+                strike = round(spot * pct, 0)  # snap to whole dollar
                 # Add some vol skew: lower strikes have higher IV
                 skew_iv = base_iv + (1 - pct) * 0.15
 
@@ -172,24 +185,26 @@ def generate_options_csv(
                         f"{opt_type}"
                         f"{int(strike):05d}"
                     )
-                    rows.append({
-                        "timestamp":  eq["timestamp"],
-                        "symbol":     symbol,
-                        "underlying": underlying,
-                        "strike":     strike,
-                        "expiry":     expiry.strftime("%Y-%m-%d"),
-                        "option_type": opt_type,
-                        "open":       bs["price"],
-                        "high":       round(bs["price"] * 1.02, 4),
-                        "low":        round(bs["price"] * 0.98, 4),
-                        "close":      bs["price"],
-                        "volume":     random.randint(10, 500),
-                        "iv":         bs["iv"],
-                        "delta":      bs["delta"],
-                        "gamma":      bs["gamma"],
-                        "theta":      bs["theta"],
-                        "vega":       bs["vega"],
-                    })
+                    rows.append(
+                        {
+                            "timestamp": eq["timestamp"],
+                            "symbol": symbol,
+                            "underlying": underlying,
+                            "strike": strike,
+                            "expiry": expiry.strftime("%Y-%m-%d"),
+                            "option_type": opt_type,
+                            "open": bs["price"],
+                            "high": round(bs["price"] * 1.02, 4),
+                            "low": round(bs["price"] * 0.98, 4),
+                            "close": bs["price"],
+                            "volume": random.randint(10, 500),
+                            "iv": bs["iv"],
+                            "delta": bs["delta"],
+                            "gamma": bs["gamma"],
+                            "theta": bs["theta"],
+                            "vega": bs["vega"],
+                        }
+                    )
 
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
