@@ -34,6 +34,23 @@ class ExecutionHandler(ABC):
                 elif order.quantity < 0 and market.high >= order.limit_price:
                     return float(order.limit_price)
                 return None  # condition not met
+            case OrderType.STOP:
+                if order.stop_price is None:
+                    logger.warning(
+                        f"Stop order missing price for {order.instrument.symbol}"
+                    )
+                    return None
+                if order.quantity > 0:
+                    if market.open >= order.stop_price:
+                        return float(market.open)
+                    if market.high >= order.stop_price:
+                        return float(order.stop_price)
+                elif order.quantity < 0:
+                    if market.open <= order.stop_price:
+                        return float(market.open)
+                    if market.low <= order.stop_price:
+                        return float(order.stop_price)
+                return None  # condition not met
             case _:
                 raise ValueError(f"Unsupported order type {order.order_type}")
 
