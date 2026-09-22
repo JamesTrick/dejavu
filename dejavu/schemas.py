@@ -57,6 +57,7 @@ class MarketEvent(Event):
 
     @property
     def spread(self) -> float | None:
+        """The difference between the bid and ask price."""
         if self.bid is not None and self.ask is not None:
             return self.ask - self.bid
         return None
